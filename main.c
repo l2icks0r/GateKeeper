@@ -17,6 +17,7 @@
 #include "stm32f4xx_rng.h"
 #include "core_cm4.h"
 
+// More tests
 #include "codec.h"
 
 #define STARTUP_SOUND
