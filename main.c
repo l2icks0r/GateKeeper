@@ -19,7 +19,7 @@
 
 // More tests
 #include "codec.h"
-
+// and again...
 #define STARTUP_SOUND
 #define CADENCE
 #define NUMBERS
