@@ -1,9 +1,7 @@
-// Test comment
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 
-// Another test comment
 #include "stm32f4xx.h"
 #include "stm32f4xx_rcc.h"
 #include "stm32f4xx_gpio.h"
@@ -17,9 +15,8 @@
 #include "stm32f4xx_rng.h"
 #include "core_cm4.h"
 
-// More tests
 #include "codec.h"
-// and again...
+
 #define STARTUP_SOUND
 #define CADENCE
 #define NUMBERS
