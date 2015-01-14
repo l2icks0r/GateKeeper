@@ -1,7 +1,9 @@
+// Test comment
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
 
+// Another test comment
 #include "stm32f4xx.h"
 #include "stm32f4xx_rcc.h"
 #include "stm32f4xx_gpio.h"
