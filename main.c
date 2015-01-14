@@ -18,8 +18,8 @@
 #include "codec.h"
 
 #define STARTUP_SOUND
-//#define CADENCE
-//#define NUMBERS
+#define CADENCE
+#define NUMBERS
 
 #ifdef STARTUP_SOUND
 #include "StartupSound.c"
@@ -117,7 +117,7 @@ float BatteryLevel		  ( const unsigned int display_level );
 // UI
 void InitMenus( void );
 void ItemCopy( int menu, int source_index, int dest_index, int no_indicators );
-void SetMenuText( char * menu, char * text );
+void SetMenuText( char * menu, const char * text );
 int ReadInputs( int * inputs );
 void WaitForButtonUp();
 
@@ -186,9 +186,11 @@ enum MENUS	   { DROP_GATE = 0,
 
 				 CADENCE_VOLUME,
 				 AUDIO_IN_VOLUME,
+
 				 BATTERY_CONDITION,
 
 				 WIRELESS_REMOTE,
+
 				 RELEASE_DEVICE,
 
 				 MENUS_SIZE };
@@ -1169,7 +1171,9 @@ int main( void )
 										sprintf( Menu_Array[GATE_DROPS_ON].item[0], "\1 Red \2" );
 									else
 									{
-										if( delay < 100 )
+										if( delay == 5 )
+											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "\1 Red + 0.00%d \2", delay );
+										else if( delay < 100 )
 											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "\1 Red + 0.0%d \2", delay );
 										else
 											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "\1 Red + 0.%d \2", delay );
@@ -1183,7 +1187,9 @@ int main( void )
 										sprintf( Menu_Array[GATE_DROPS_ON].item[0], "\1 1st Yellow \2" );
 									else
 									{
-										if( (delay - 120) < 100 )
+										if( delay == 125 )
+											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "*1st Yellow + 0.00%d\2", (delay - 120) );
+										else if( (delay - 120) < 100 )
 											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "*1st Yellow + 0.0%d0", (delay - 120) );
 										else
 											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "*1st Yellow + 0.%d*", (delay - 120) );
@@ -1198,7 +1204,9 @@ int main( void )
 										sprintf( Menu_Array[GATE_DROPS_ON].item[0], "\1 2nd Yellow \2" );
 									else
 									{
-										if( (delay - 240) < 100 )
+										if( delay == 245 )
+											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "*2nd Yellow + 0.00%d\2", (delay - 240) );
+										else if( (delay - 240) < 100 )
 											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "*2nd Yellow + 0.0%d0", (delay - 240) );
 										else
 											sprintf( Menu_Array[GATE_DROPS_ON].item[0], "*2nd Yellow + 0.%d*", (delay - 240) );
@@ -1224,7 +1232,7 @@ int main( void )
 								// change menu value
 								if( encoder_delta != 0 )
 								{
-									Menu_Array[GATE_DROPS_ON].context += encoder_delta * 10;
+									Menu_Array[GATE_DROPS_ON].context += encoder_delta * 5;
 
 									if( Menu_Array[GATE_DROPS_ON].context < 0 )
 										Menu_Array[GATE_DROPS_ON].context = 0;
@@ -1245,7 +1253,7 @@ int main( void )
 								for(; i < strlen(Menu_Array[ GATE_DROPS_ON ].item[0]); i++)
 								{
 									if( Menu_Array[ GATE_DROPS_ON ].item[0][i] == '\1' || Menu_Array[ GATE_DROPS_ON ].item[0][i] == '\2' )
-											Menu_Array[ GATE_DROPS_ON ].item[0][i] = 0x20;
+										Menu_Array[ GATE_DROPS_ON ].item[0][i] = 0x20;
 								}
 								WriteLCD_LineCentered( Menu_Array[ GATE_DROPS_ON ].item[0], 1 );
 								UpdateLCD();
@@ -1288,6 +1296,9 @@ int main( void )
 										case 4: { Menu_Array[menu_index].context = AUX_SPRINT_TIMER;	break;	}
 										case 5: { Menu_Array[menu_index].context = AUX_GATE_SWITCH;		break;	}
 										case 6:	{ Menu_Array[menu_index].context = AUX_SENSOR_SPACING;	break;	}
+
+										// TODO: handle the case when both aux ports are set to sprint timer
+
 										// TODO: Speed mode? Just waits for sensors to hit over and over again until encoder button is hit
 										// top line will alternate between WAITING on line 0, then when sensors are hit it says speed on top, then last time below
 										// no speed history
@@ -1320,7 +1331,7 @@ int main( void )
 										{
 											int new_value = Menu_Array[menu_index].sub_context + encoder_delta;
 
-											if( new_value >= 0 && new_value <= 120 )
+											if( new_value >= 0 && new_value <= 120 ) // limit to 10 feet? Ha
 											{
 												Menu_Array[menu_index].sub_context = new_value;
 
@@ -1893,7 +1904,38 @@ int main( void )
 						}
 						break;
 					}
+					else if( Menu_Array[AUX_1_CONFIG].context == AUX_SPRINT_TIMER )
+					{
+//						if( HandleSprintTimer( AUX_1_CONFIG, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
+						break;
+					}
+					else if( Menu_Array[AUX_2_CONFIG].context == AUX_SPRINT_TIMER )
+					{
+//						if( HandleSprintTimer( AUX_2_CONFIG, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
+						break;
+					}
+/*
+int HandleSprintTimer( const unsigned int sensor_1A, const unsigned int sensor_1B,
+					   const unsigned int sensor_2A, const unsigned int sensor_2B, const unsigned int aux_config )
+{
+	char line_0[ DISPLAY_WIDTH ] = SPACES;
+	char line_1[ DISPLAY_WIDTH ] = SPACES;
 
+	if( sensor_1 == 0 && (sensor_1A | sensor_1B) != 0 ) sensor_1 = (sensor_1A | sensor_1B);
+	if( sensor_2 == 0 && (sensor_2A | sensor_2B) != 0 ) sensor_2 = (sensor_2A | sensor_2B);
+
+	GetTimesString( sensor_1, sensor_2, line_0, line_1 );
+
+	WriteLCD_Line( line_0, 0 );
+	WriteLCD_Line( line_1, 1 );
+	UpdateLCD();
+
+	if( sensor_1 == 0 || sensor_2 == 0 ) continue;
+
+	return 1; // continue timing
+	return 0; // stop timing
+}
+*/
 				} while( inputs != BUTTON_E && inputs != BUTTON_C && Cancel_Timing != 1 );
 
 
@@ -2907,13 +2949,6 @@ int ReadBatteryCondition( void )
 	return battery_level;
 }
 
-void SetMenuText( char * menu, char * text )
-{
-	int i;
-
-	for( i = 0; i < DISPLAY_WIDTH; i++ ) menu[i] = text[i];
-}
-
 void PlayTimeOrPercent( unsigned int ticks, int play_type )
 {
 	//TODO: restructure this sound function to use an array?
@@ -3434,4 +3469,10 @@ void ItemCopy( int menu, int source_index, int dest_index, int no_indicators )
 
 		Menu_Array[ menu ].item[ dest_index ][ i ] = source_char;
 	}
+}
+
+void SetMenuText( char * menu, const char * text )
+{
+	int i;
+	for( i = 0; i < DISPLAY_WIDTH; i++ ) menu[i] = text[i];
 }
