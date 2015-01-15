@@ -556,7 +556,7 @@ void ProcessTimeAndSpeed( const unsigned int elapsed_time, const int speed, cons
 	SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].time_speed_string );
 }
 
-int HandleTimeAndDisabled(unsigned int sensor_A, unsigned int sensor_B, const char * timing_string, const char * elapsed_string )
+int DoTimeAndDisabled(unsigned int sensor_A, unsigned int sensor_B, const char * timing_string, const char * elapsed_string )
 {
 	if( sensor_A == 0 && sensor_B == 0 )
 	{
@@ -584,7 +584,7 @@ int HandleTimeAndDisabled(unsigned int sensor_A, unsigned int sensor_B, const ch
 	return 0;
 }
 
-int HandleTimeAndSpeed( const unsigned int aux1_option, unsigned int * read_attempts,
+int DoTimeAndSpeed( const unsigned int aux1_option, unsigned int * read_attempts,
 						const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B)
 {
 	char line_0[ DISPLAY_WIDTH ] = SPACES;
@@ -657,7 +657,7 @@ int HandleTimeAndSpeed( const unsigned int aux1_option, unsigned int * read_atte
 	return 0;
 }
 
-int HandleSpeedAndDisabled( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
+int DoSpeedAndDisabled( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
 							unsigned int * read_attempts, const char * timing_string, const char * elapsed_string )
 {
 	if( sensor_A == 0 || sensor_B == 0 )
@@ -695,6 +695,127 @@ int HandleSpeedAndDisabled( const unsigned int sensor_A, const unsigned int sens
 
 	return 0;
 }
+
+
+
+void DoSprintTimer( unsigned int aux_config )
+{
+	unsigned int sensor_1 = 0;
+	unsigned int sensor_2 = 0;
+
+	unsigned int sensor_1A = 0, sensor_1B = 0, sensor_2A = 0, sensor_2B = 0;
+
+	char time_string[ DISPLAY_WIDTH ] = SPACES;
+
+	// reset all the timers
+	Timer_Tick			= 0;
+	Aux_1_Sensor_A_Tick = 0;
+	Aux_1_Sensor_B_Tick = 0;
+	Aux_2_Sensor_A_Tick = 0;
+	Aux_2_Sensor_B_Tick = 0;
+
+	int inputs = 0;
+
+	float speed = 0;
+
+	do
+	{
+		ReadInputs( & inputs );
+
+		// reassign based on which is actually AUX 1, AUX 2
+		if( aux_config == AUX_1_CONFIG )
+		{
+			sensor_1A = Aux_1_Sensor_A_Tick;	sensor_1B = Aux_1_Sensor_B_Tick;
+			sensor_2A = Aux_2_Sensor_A_Tick;	sensor_2B = Aux_2_Sensor_B_Tick;
+		}
+		else
+		{
+			sensor_1A = Aux_2_Sensor_A_Tick;	sensor_1B = Aux_2_Sensor_B_Tick;
+			sensor_2A = Aux_1_Sensor_A_Tick;	sensor_2B = Aux_1_Sensor_B_Tick;
+		}
+
+		if( sensor_1A == 0 && sensor_1B == 0 && sensor_2A == 0 && sensor_2B == 0 )
+		{
+			WriteLCD_LineCentered( "WAITING FOR SENSOR", 0 );
+			if( speed == 0 )
+				WriteLCD_LineCentered( SPACES, 1 );
+
+			UpdateLCD();
+
+			Timer_Tick = 0;
+
+			continue;
+		}
+
+		if( sensor_1A != 0 || sensor_1B != 0 || sensor_2A != 0 || sensor_2B != 0 )
+		{
+			GetTimeString( Timer_Tick, time_string );
+
+			if( aux_config == AUX_1_CONFIG )
+				WriteLCD_LineCentered( "TIMING AUX 1", 0 );
+			else
+				WriteLCD_LineCentered( "TIMING AUX 2", 0 );
+
+			WriteLCD_LineCentered( time_string, 1 );
+			UpdateLCD();
+
+			// sensor 1 is used to keep track of time
+			if( sensor_1 == 0 && (sensor_1A || sensor_1B) != 0 )	sensor_1 = (sensor_1A | sensor_1B);
+
+			// sensor 2 is used to calculate speed
+			if( sensor_2 == 0 && (sensor_2A || sensor_2B) != 0 )	sensor_2 = (sensor_2A | sensor_2B);
+
+
+			// check to see if a speed should be displayed
+			if( sensor_1A != 0 && sensor_1B != 0 )
+			{
+				const unsigned int sensor_spacing = (aux_config == AUX_1_CONFIG ) ? Aux_1_Sensor_Spacing : Aux_2_Sensor_Spacing;
+
+				unsigned int sensor_delta = 0, speed_integer = 0, speed_fractional = 0;
+
+				// determine speed
+				CalculateSpeed( sensor_1A, sensor_1B, sensor_spacing, & sensor_delta, & speed, & speed_integer, & speed_fractional );
+
+				// determine elapsed time if it was triggered
+				unsigned int elapsed_time = 0;
+
+				if( sensor_2A != 0 || sensor_2B != 0 )
+				{
+					const unsigned int end_time = ( sensor_1A < sensor_1B ) ? sensor_1A : sensor_1B;
+					elapsed_time = end_time - sensor_2;
+				}
+
+				ProcessTimeAndSpeed( elapsed_time, speed, speed_integer, speed_fractional );
+
+				if( elapsed_time > 0 )
+				{
+					WriteLCD_LineCentered( "LAST TIME AND SPEED", 0 );
+					WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
+				}
+				else
+				{
+					WriteLCD_LineCentered( "LAST SPEED", 0 );
+					WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
+				}
+
+				UpdateLCD();
+
+				Delay( 2000 );
+
+				// reset all the timers
+				Timer_Tick			= 0;
+				Aux_1_Sensor_A_Tick = 0;
+				Aux_1_Sensor_B_Tick = 0;
+				Aux_2_Sensor_A_Tick = 0;
+				Aux_2_Sensor_B_Tick = 0;
+
+				continue;
+			}
+		}
+
+	} while( inputs != BUTTON_E );
+}
+
 
 
 
@@ -1770,118 +1891,26 @@ int main( void )
 					unsigned int sensor_2A = CheckSensor( AUX_2_SENSOR_A );
 					unsigned int sensor_2B = CheckSensor( AUX_2_SENSOR_B );
 
-					unsigned int sensor_delta = 0, speed_integer = 0, speed_fractional = 0;
-					float speed = 0;
-
 					if( Menu_Array[AUX_1_CONFIG].context == AUX_SPRINT_TIMER )
 					{
-						char time_string[ DISPLAY_WIDTH ] = SPACES;
-
-						// reset all the timers
-						Timer_Tick			= 0;
-						Aux_1_Sensor_A_Tick = 0;
-						Aux_1_Sensor_B_Tick = 0;
-						Aux_2_Sensor_A_Tick = 0;
-						Aux_2_Sensor_B_Tick = 0;
-
-						do
-						{
-							ReadInputs( & inputs );
-
-							// for the sake of readability copy to smaller symbols
-							sensor_1A = Aux_1_Sensor_A_Tick;	sensor_1B = Aux_1_Sensor_B_Tick;
-							sensor_2A = Aux_2_Sensor_A_Tick;	sensor_2B = Aux_2_Sensor_B_Tick;
-
-							if( sensor_1A == 0 && sensor_1B == 0 && sensor_2A == 0 && sensor_2B == 0 )
-							{
-								WriteLCD_LineCentered( "WAITING FOR SENSOR", 0 );
-								if( speed == 0 )
-									WriteLCD_LineCentered( SPACES, 1 );
-
-								UpdateLCD();
-
-								Timer_Tick = 0;
-
-								continue;
-							}
-
-							if( sensor_1A != 0 || sensor_1B != 0 || sensor_2A != 0 || sensor_2B != 0 )
-							{
-								GetTimeString( Timer_Tick, time_string );
-
-								WriteLCD_LineCentered( "TIMING AUX 1", 0 );
-								WriteLCD_LineCentered( time_string, 1 );
-								UpdateLCD();
-
-								// sensor 1 is used to keep track of time
-								if( sensor_1 == 0 && (sensor_1A || sensor_1B) != 0 )	sensor_1 = (sensor_1A | sensor_1B);
-
-								// sensor 2 is used to calculate speed
-								if( sensor_2 == 0 && (sensor_2A || sensor_2B) != 0 )	sensor_2 = (sensor_2A | sensor_2B);
-
-
-								// check to see if a speed should be displayed
-								if( sensor_1A != 0 && sensor_1B != 0 )
-								{
-									// determine speed
-
-									CalculateSpeed( sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, & sensor_delta, & speed, & speed_integer, & speed_fractional );
-
-									// determine elapsed time if it was triggered
-									unsigned int elapsed_time = 0;
-
-									if( sensor_2A != 0 || sensor_2B != 0 )
-									{
-										const unsigned int end_time = ( sensor_1A < sensor_1B ) ? sensor_1A : sensor_1B;
-										elapsed_time = end_time - sensor_2;
-									}
-
-									ProcessTimeAndSpeed( elapsed_time, speed, speed_integer, speed_fractional );
-
-									if( elapsed_time > 0 )
-									{
-										WriteLCD_LineCentered( "LAST TIME AND SPEED", 0 );
-										WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
-									}
-									else
-									{
-										WriteLCD_LineCentered( "LAST SPEED", 0 );
-										WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
-									}
-
-									UpdateLCD();
-
-									Delay( 2000 );
-
-									// reset all the timers
-									Timer_Tick			= 0;
-									Aux_1_Sensor_A_Tick = 0;
-									Aux_1_Sensor_B_Tick = 0;
-									Aux_2_Sensor_A_Tick = 0;
-									Aux_2_Sensor_B_Tick = 0;
-
-									continue;
-								}
-							}
-
-						} while( inputs != BUTTON_E );
-
+						DoSprintTimer( AUX_1_CONFIG );
 						break;
 					}
 					else if( Menu_Array[AUX_2_CONFIG].context == AUX_SPRINT_TIMER )
 					{
-
+						DoSprintTimer( AUX_2_CONFIG );
+						break;
 					}
 					else if( Menu_Array[AUX_1_CONFIG].context == AUX_DISABLED )
 					{
 						if( Menu_Array[AUX_2_CONFIG].context == AUX_TIME )
 						{
-							if( HandleTimeAndDisabled( sensor_2A, sensor_2B, "TIMING AUX 2", "AUX 2 ELAPSED TIME" ) == 1 ) continue;
+							if( DoTimeAndDisabled( sensor_2A, sensor_2B, "TIMING AUX 2", "AUX 2 ELAPSED TIME" ) == 1 ) continue;
 							break;
 						}
 						else if( Menu_Array[AUX_2_CONFIG].context == AUX_TIME_SPEED )
 						{
-							if( HandleSpeedAndDisabled( sensor_2A, sensor_2B, Aux_2_Sensor_Spacing, &read_attempts, "TIMING AUX 2", "AUX 2 ELAPSED TIME" ) == 1 ) continue;
+							if( DoSpeedAndDisabled( sensor_2A, sensor_2B, Aux_2_Sensor_Spacing, &read_attempts, "TIMING AUX 2", "AUX 2 ELAPSED TIME" ) == 1 ) continue;
 							break;
 						}
 					}
@@ -1889,12 +1918,12 @@ int main( void )
 					{
 						if( Menu_Array[AUX_1_CONFIG].context == AUX_TIME )
 						{
-							if( HandleTimeAndDisabled( sensor_1A, sensor_1B, "TIMING AUX 1", "AUX 1 ELAPSED TIME" ) == 1 ) continue;
+							if( DoTimeAndDisabled( sensor_1A, sensor_1B, "TIMING AUX 1", "AUX 1 ELAPSED TIME" ) == 1 ) continue;
 							break;
 						}
 						else if( Menu_Array[AUX_1_CONFIG].context == AUX_TIME_SPEED )
 						{
-							if( HandleSpeedAndDisabled( sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, &read_attempts, "TIMING AUX 1", "AUX 1 ELAPSED TIME" ) == 1 ) continue;
+							if( DoSpeedAndDisabled( sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, &read_attempts, "TIMING AUX 1", "AUX 1 ELAPSED TIME" ) == 1 ) continue;
 							break;
 						}
 					}
@@ -1941,7 +1970,7 @@ int main( void )
 						}
 						else if( Menu_Array[AUX_2_CONFIG].context == AUX_TIME_SPEED )
 						{
-							if( HandleTimeAndSpeed( AUX_TIME, & read_attempts, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
+							if( DoTimeAndSpeed( AUX_TIME, & read_attempts, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
 							break;
 						}
 					}
@@ -1949,7 +1978,7 @@ int main( void )
 					{
 						if( Menu_Array[AUX_1_CONFIG].context == AUX_TIME_SPEED )
 						{
-							if( HandleTimeAndSpeed( AUX_TIME_SPEED, & read_attempts, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
+							if( DoTimeAndSpeed( AUX_TIME_SPEED, & read_attempts, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
 							break;
 						}
 					}
