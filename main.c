@@ -17,9 +17,9 @@
 
 #include "codec.h"
 
-//#define STARTUP_SOUND
-//#define CADENCE
-//#define NUMBERS
+#define STARTUP_SOUND
+#define CADENCE
+#define NUMBERS
 
 #ifdef STARTUP_SOUND
 #include "StartupSound.c"
@@ -227,8 +227,7 @@ enum DEVICE_STATE { STARTUP, RECHARGE, WAIT_FOR_USER, WAIT_FOR_SENSORS, WAIT_FOR
 #define MAX_TIMING_HISTORIES 1000
 // used as a counter for each timing entry for identification - one meeeeeleeeeeeown entries...ha
 #define MAX_HISTORY_NUMBER 1000000
-// after so many reads without triggering the speed sensor must be treated as faulty so abort
-#define MAX_SENSOR_READS 128
+
 
 struct TIMING_DEFINITION	// should this keep track of what AUX port the measurement came in on? can scroll in main menu for two times
 {
@@ -581,10 +580,12 @@ int DoTimeAndDisabled( const unsigned int aux_config, unsigned int sensor_A, uns
 	UpdateLCD();
 
 	// say elapsed time
+#ifdef CADENCE
 	PlaySilence( 100, 0 );
-	PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time, PLAY_TIME );
+	PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
 	PlaySilence( 1, 0 );
 	InitAudio();
+#endif
 
 	Delay( 2000 );
 
@@ -791,14 +792,25 @@ void DoSprintTimer( unsigned int aux_config )
 				{
 					WriteLCD_LineCentered( "LAST TIME AND SPEED", 0 );
 					WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
+					UpdateLCD();
+
+					PlaySilence( 100, 1 );
+					PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
+					PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+
+					PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+					InitAudio();
 				}
 				else
 				{
 					WriteLCD_LineCentered( "LAST SPEED", 0 );
 					WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
-				}
+					UpdateLCD();
 
-				UpdateLCD();
+					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+					InitAudio();
+				}
 
 				Delay( 2000 );
 
@@ -1064,7 +1076,7 @@ int main( void )
 #ifdef NUMBERS
 						PlaySilence( 100, 0 );
 						PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
-						PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT ); // todo: get rid of the * 60 * 100 in the called function
+						PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
 						InitAudio();
 #endif
 						break;
@@ -1418,12 +1430,6 @@ int main( void )
 										case 4: { Menu_Array[menu_index].context = AUX_SPRINT_TIMER;	break;	}
 										case 5: { Menu_Array[menu_index].context = AUX_GATE_SWITCH;		break;	}
 										case 6:	{ Menu_Array[menu_index].context = AUX_SENSOR_SPACING;	break;	}
-
-										// TODO: handle the case when both aux ports are set to sprint timer
-
-										// TODO: Speed mode? Just waits for sensors to hit over and over again until encoder button is hit
-										// top line will alternate between WAITING on line 0, then when sensors are hit it says speed on top, then last time below
-										// no speed history
 									}
 									continue;
 								}
@@ -1574,14 +1580,22 @@ int main( void )
 								// TIME on top, SPEED on bottom
 								else if( Timer_History[ top_index ].is_a_speed )
 								{
-									// write time to top line right justified
-									sprintf( time, "%s", Timer_History[ top_index ].time_string );
-									for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_0[ j ] = time[ i ];
-									line_0[ DISPLAY_WIDTH - 2 ] = 0x20;
-
 									// write Speed: left justified
-									sprintf( line_1, "Speed:" );
-									line_1[ 6 ] = 0x20;	// get rid of null termination that sprintf put on the end
+									if( Timer_History[ top_index ].elapsed_time == 0 )
+									{
+										sprintf( line_1, "Sprint:" );
+										line_1[ 7 ] = 0x20;
+									}
+									else
+									{
+										// write time to top line right justified
+										sprintf( time, "%s", Timer_History[ top_index ].time_string );
+										for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_0[ j ] = time[ i ];
+										line_0[ DISPLAY_WIDTH - 2 ] = 0x20;
+
+										sprintf( line_1, "Time:" );
+										line_1[ 5 ] = 0x20;	// get rid of null termination that sprintf put on the end
+									}
 
 									// write the speed right justified
 									j = DISPLAY_WIDTH - 2 - strlen( Timer_History[ top_index ].speed_string );
@@ -1719,7 +1733,7 @@ int main( void )
 #ifdef NUMBERS
 							PlaySilence( 100, 0 );
 							PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
-							PlayTimeOrPercent( Menu_Array[CADENCE_VOLUME].context * 60 * 1000, PLAY_PERCENT ); // todo: get rid of the * 60 * 1000 in the called function
+							PlayTimeOrPercent( Menu_Array[CADENCE_VOLUME].context * 60 * 1000, PLAY_PERCENT );
 							InitAudio();
 #endif
 							break;
@@ -1813,7 +1827,7 @@ int main( void )
 #ifdef NUMBERS
 							PlaySilence( 100, 0 );
 							PlaySample24khz( BatteryAtData, 0, BATTERY_AT_SIZE, 1 );
-							PlayTimeOrPercent( Menu_Array[BATTERY_CONDITION].context * 60 * 1000, PLAY_PERCENT ); // todo: get rid of the * 60 * 1000 in the called function
+							PlayTimeOrPercent( Menu_Array[BATTERY_CONDITION].context * 60 * 1000, PLAY_PERCENT );
 							InitAudio();
 #endif
 							break;
@@ -1952,26 +1966,47 @@ int main( void )
 
 							if( sensor_1 == 0 || sensor_2 == 0 ) continue;
 
-							// determine which time to add to timing history first, larger goes in last
-							// TODO: fix the problem when the first time is a single digit second where the block appears
+							const int time_start = 8400;
+							const int time_size  = 7500;
+
 							if( sensor_1 > sensor_2 )
 							{
 								GetTimeString( sensor_2, line_1 );
-								AddTimeToTimerHistory( AUX_2_CONFIG, sensor_1, line_1 );
+								AddTimeToTimerHistory( AUX_2_CONFIG, sensor_2, line_1 );
+
 								GetTimeString( sensor_1, line_0 );
 								AddTimeToTimerHistory( AUX_1_CONFIG, sensor_1, line_0 );
+
+								PlaySilence( 100, 1 );
+								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+								PlayDigit( 1 );
+								PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+
+								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+								PlayDigit( 2 );
+								PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
+								InitAudio();
 							}
 							else
 							{
 								GetTimeString( sensor_1, line_1 );
 								AddTimeToTimerHistory( AUX_1_CONFIG, sensor_1, line_1 );
+
 								GetTimeString( sensor_2, line_0 );
 								AddTimeToTimerHistory( AUX_2_CONFIG, sensor_2, line_0 );
+
+								PlaySilence( 100, 1 );
+								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+								PlayDigit( 1 );
+								PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
+
+								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+								PlayDigit( 2 );
+								PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+								InitAudio();
 							}
 
-							// TODO: add playing of "Last Time Was" using range for just time and was do time 1 was, time 2 was
-
-							Delay( 5000 );
+							Delay( 2000 );
 
 							break;
 						}
@@ -2063,7 +2098,7 @@ int main( void )
 
 void DropGate( void )
 {
-	WriteLCD_LineCentered( "STARTING GATE DROP", 0 ); // TODO: make this music fade...
+	WriteLCD_LineCentered( "STARTING GATE DROP", 0 );
 	UpdateLCD();
 
 	Cadence_Cancelled = 0;
@@ -3047,7 +3082,6 @@ int ReadBatteryCondition( void )
 
 void PlayTimeOrPercent( unsigned int ticks, int play_type )
 {
-	//TODO: restructure this sound function to use an array?
 #ifdef NUMBERS
 
 	int minutes     = (ticks / 60000);
@@ -3275,7 +3309,6 @@ void PlayTimeOrPercent( unsigned int ticks, int play_type )
 
 void PlaySpeed( int integer, int fractional )
 {
-	//TODO: restructure this sound function to use an array?
 	PlaySilence( 100, 1 );
 
 #ifdef NUMBERS
@@ -3374,14 +3407,11 @@ void PlaySpeed( int integer, int fractional )
 	}
 
 	PlaySample24khz( MilesPerHourData,	0, MILES_PER_HOUR_SIZE, 0 );
-
-	InitAudio();
 #endif
 }
 
 void PlayDigit( int number )
 {
-	//TODO: restructure this sound function to use an array?
 #ifdef NUMBERS
 	switch( number )
 	{
