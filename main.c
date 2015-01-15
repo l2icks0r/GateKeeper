@@ -17,9 +17,9 @@
 
 #include "codec.h"
 
-#define STARTUP_SOUND
-#define CADENCE
-#define NUMBERS
+//#define STARTUP_SOUND
+//#define CADENCE
+//#define NUMBERS
 
 #ifdef STARTUP_SOUND
 #include "StartupSound.c"
@@ -100,7 +100,8 @@ void WriteLCD_Line	 		( const char * pString, int line_no );
 void WriteLCD_LineCentered	( const char * pString, int line_no );
 void UpdateLCD		 		( void );
 
-// timer (system ticks)
+
+// timer (systeAux_1_Sensor_A_Tickcks)
 static int Timer_Tick = 0;
 
 void StartTimer6( void );
@@ -137,9 +138,9 @@ void PlaySpeed( int integer, int fractional );
 void PlayDigit( int number );
 
 // timing
-unsigned int CheckSensor	( unsigned int sensor );
-void GetTimeString			( unsigned int sensor_ticks,	char *time_string );
-void GetTimesString			( unsigned int sensor_1, unsigned int sensor_2, char *sensor_1_string, char *sensor_2_string );
+unsigned int CheckSensor	( const unsigned int sensor );
+void GetTimeString			( const unsigned int sensor_ticks, char *time_string );
+void GetTimesString			( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_string, char *sensor_2_string );
 
 void GetTimeHistoryString	( unsigned int sensor,	char *time_string );
 void GetSpeedHistoryString	( unsigned int sensor_a, unsigned int sensor_b, char *speed_string );
@@ -266,10 +267,10 @@ static unsigned int Turn_Magnet_Off		= 0;
 static unsigned int Magnet_On 			= 0;
 
 // sensor ticks set by timer 6 and cleared in DropGate()
-static unsigned int AUX_1_SENSOR_A_Tick = 0;
-static unsigned int AUX_1_SENSOR_B_Tick = 0;
-static unsigned int AUX_2_SENSOR_A_Tick = 0;
-static unsigned int AUX_2_SENSOR_B_Tick = 0;
+static unsigned int Aux_1_Sensor_A_Tick = 0;
+static unsigned int Aux_1_Sensor_B_Tick = 0;
+static unsigned int Aux_2_Sensor_A_Tick = 0;
+static unsigned int Aux_2_Sensor_B_Tick = 0;
 
 // configuration for the distance between the two sensors when measuring speed
 static unsigned int Aux_1_Sensor_Spacing = 0;
@@ -329,14 +330,14 @@ float BatteryLevel( const unsigned int display_level )
 	return charge_level;
 }
 
-unsigned int CheckSensor( unsigned int sensor )
+unsigned int CheckSensor( const unsigned int sensor )
 {
 	switch( sensor )
 	{
-		case AUX_1_SENSOR_A: return AUX_1_SENSOR_A_Tick;
-		case AUX_1_SENSOR_B: return AUX_1_SENSOR_B_Tick;
-		case AUX_2_SENSOR_A: return AUX_2_SENSOR_A_Tick;
-		case AUX_2_SENSOR_B: return AUX_2_SENSOR_B_Tick;
+		case AUX_1_SENSOR_A: return Aux_1_Sensor_A_Tick;
+		case AUX_1_SENSOR_B: return Aux_1_Sensor_B_Tick;
+		case AUX_2_SENSOR_A: return Aux_2_Sensor_A_Tick;
+		case AUX_2_SENSOR_B: return Aux_2_Sensor_B_Tick;
 	}
 
 	return 0;
@@ -351,7 +352,7 @@ void GetTimeFromTicks( unsigned int ticks, unsigned int *minutes, unsigned int *
 	*thou_place  = (ticks / 10	  ) % 10;
 }
 
-void GetTimeString( unsigned int sensor_ticks, char *time_string )
+void GetTimeString( const unsigned int sensor_ticks, char *time_string )
 {
 	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
 
@@ -366,7 +367,7 @@ void GetTimeString( unsigned int sensor_ticks, char *time_string )
 		sprintf( time_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
 }
 
-void GetTimesString( unsigned int sensor_1, unsigned int sensor_2, char *sensor_1_time_string, char *sensor_2_time_string )
+void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_time_string, char *sensor_2_time_string )
 {
 	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
 
@@ -482,7 +483,7 @@ void ProcessElapsedTimer( unsigned int sensor_A, unsigned int sensor_B )
 	AddTimeToTimerHistory( elapsed_time, elapsed_time_string );
 }
 
-void CalculateSpeed( unsigned int sensor_A, unsigned int sensor_B, const unsigned int sensor_spacing,
+void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
 					 unsigned int * elapsed_time, float * speed , unsigned int * speed_integer, unsigned int * speed_fractional )
 {
 	*elapsed_time = (sensor_A < sensor_B) ? sensor_B : sensor_A;
@@ -1355,6 +1356,11 @@ int main( void )
 									}
 									continue;
 								}
+								else if( Menu_Array[menu_index].context == AUX_SPRINT_TIMER )
+								{
+									Device_State = WAIT_FOR_SENSORS;
+									break;
+								}
 
 								ItemCopy( menu_index, Menu_Array[menu_index].context, 0, 1 );
 								WriteLCD_LineCentered( Menu_Array[menu_index].item[0], 1 );
@@ -1759,12 +1765,114 @@ int main( void )
 					ReadInputs( &inputs );
 
 					// return a time if there is one from being tripped
-					const unsigned int sensor_1A = CheckSensor( AUX_1_SENSOR_A );
-					const unsigned int sensor_1B = CheckSensor( AUX_1_SENSOR_B );
-					const unsigned int sensor_2A = CheckSensor( AUX_2_SENSOR_A );
-					const unsigned int sensor_2B = CheckSensor( AUX_2_SENSOR_B );
+					unsigned int sensor_1A = CheckSensor( AUX_1_SENSOR_A );
+					unsigned int sensor_1B = CheckSensor( AUX_1_SENSOR_B );
+					unsigned int sensor_2A = CheckSensor( AUX_2_SENSOR_A );
+					unsigned int sensor_2B = CheckSensor( AUX_2_SENSOR_B );
 
-					if( Menu_Array[AUX_1_CONFIG].context == AUX_DISABLED )
+					unsigned int sensor_delta = 0, speed_integer = 0, speed_fractional = 0;
+					float speed = 0;
+
+					if( Menu_Array[AUX_1_CONFIG].context == AUX_SPRINT_TIMER )
+					{
+						char time_string[ DISPLAY_WIDTH ] = SPACES;
+
+						// reset all the timers
+						Timer_Tick			= 0;
+						Aux_1_Sensor_A_Tick = 0;
+						Aux_1_Sensor_B_Tick = 0;
+						Aux_2_Sensor_A_Tick = 0;
+						Aux_2_Sensor_B_Tick = 0;
+
+						do
+						{
+							ReadInputs( & inputs );
+
+							// for the sake of readability copy to smaller symbols
+							sensor_1A = Aux_1_Sensor_A_Tick;	sensor_1B = Aux_1_Sensor_B_Tick;
+							sensor_2A = Aux_2_Sensor_A_Tick;	sensor_2B = Aux_2_Sensor_B_Tick;
+
+							if( sensor_1A == 0 && sensor_1B == 0 && sensor_2A == 0 && sensor_2B == 0 )
+							{
+								WriteLCD_LineCentered( "WAITING FOR SENSOR", 0 );
+								if( speed == 0 )
+									WriteLCD_LineCentered( SPACES, 1 );
+
+								UpdateLCD();
+
+								Timer_Tick = 0;
+
+								continue;
+							}
+
+							if( sensor_1A != 0 || sensor_1B != 0 || sensor_2A != 0 || sensor_2B != 0 )
+							{
+								GetTimeString( Timer_Tick, time_string );
+
+								WriteLCD_LineCentered( "TIMING AUX 1", 0 );
+								WriteLCD_LineCentered( time_string, 1 );
+								UpdateLCD();
+
+								// sensor 1 is used to keep track of time
+								if( sensor_1 == 0 && (sensor_1A || sensor_1B) != 0 )	sensor_1 = (sensor_1A | sensor_1B);
+
+								// sensor 2 is used to calculate speed
+								if( sensor_2 == 0 && (sensor_2A || sensor_2B) != 0 )	sensor_2 = (sensor_2A | sensor_2B);
+
+
+								// check to see if a speed should be displayed
+								if( sensor_1A != 0 && sensor_1B != 0 )
+								{
+									// determine speed
+
+									CalculateSpeed( sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, & sensor_delta, & speed, & speed_integer, & speed_fractional );
+
+									// determine elapsed time if it was triggered
+									unsigned int elapsed_time = 0;
+
+									if( sensor_2A != 0 || sensor_2B != 0 )
+									{
+										const unsigned int end_time = ( sensor_1A < sensor_1B ) ? sensor_1A : sensor_1B;
+										elapsed_time = end_time - sensor_2;
+									}
+
+									ProcessTimeAndSpeed( elapsed_time, speed, speed_integer, speed_fractional );
+
+									if( elapsed_time > 0 )
+									{
+										WriteLCD_LineCentered( "LAST TIME AND SPEED", 0 );
+										WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
+									}
+									else
+									{
+										WriteLCD_LineCentered( "LAST SPEED", 0 );
+										WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
+									}
+
+									UpdateLCD();
+
+									Delay( 2000 );
+
+									// reset all the timers
+									Timer_Tick			= 0;
+									Aux_1_Sensor_A_Tick = 0;
+									Aux_1_Sensor_B_Tick = 0;
+									Aux_2_Sensor_A_Tick = 0;
+									Aux_2_Sensor_B_Tick = 0;
+
+									continue;
+								}
+							}
+
+						} while( inputs != BUTTON_E );
+
+						break;
+					}
+					else if( Menu_Array[AUX_2_CONFIG].context == AUX_SPRINT_TIMER )
+					{
+
+					}
+					else if( Menu_Array[AUX_1_CONFIG].context == AUX_DISABLED )
 					{
 						if( Menu_Array[AUX_2_CONFIG].context == AUX_TIME )
 						{
@@ -1904,38 +2012,6 @@ int main( void )
 						}
 						break;
 					}
-					else if( Menu_Array[AUX_1_CONFIG].context == AUX_SPRINT_TIMER )
-					{
-//						if( HandleSprintTimer( AUX_1_CONFIG, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
-						break;
-					}
-					else if( Menu_Array[AUX_2_CONFIG].context == AUX_SPRINT_TIMER )
-					{
-//						if( HandleSprintTimer( AUX_2_CONFIG, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
-						break;
-					}
-/*
-int HandleSprintTimer( const unsigned int sensor_1A, const unsigned int sensor_1B,
-					   const unsigned int sensor_2A, const unsigned int sensor_2B, const unsigned int aux_config )
-{
-	char line_0[ DISPLAY_WIDTH ] = SPACES;
-	char line_1[ DISPLAY_WIDTH ] = SPACES;
-
-	if( sensor_1 == 0 && (sensor_1A | sensor_1B) != 0 ) sensor_1 = (sensor_1A | sensor_1B);
-	if( sensor_2 == 0 && (sensor_2A | sensor_2B) != 0 ) sensor_2 = (sensor_2A | sensor_2B);
-
-	GetTimesString( sensor_1, sensor_2, line_0, line_1 );
-
-	WriteLCD_Line( line_0, 0 );
-	WriteLCD_Line( line_1, 1 );
-	UpdateLCD();
-
-	if( sensor_1 == 0 || sensor_2 == 0 ) continue;
-
-	return 1; // continue timing
-	return 0; // stop timing
-}
-*/
 				} while( inputs != BUTTON_E && inputs != BUTTON_C && Cancel_Timing != 1 );
 
 
@@ -2091,10 +2167,10 @@ void DropGate( void )
 		Timer_Tick 			= 0;
 
 		// initialize the sensors so the tick value is set only once from the timer 6 interrupt
-		AUX_1_SENSOR_A_Tick = 0;
-		AUX_1_SENSOR_B_Tick = 0;
-		AUX_2_SENSOR_A_Tick = 0;
-		AUX_2_SENSOR_B_Tick = 0;
+		Aux_1_Sensor_A_Tick = 0;
+		Aux_1_Sensor_B_Tick = 0;
+		Aux_2_Sensor_A_Tick = 0;
+		Aux_2_Sensor_B_Tick = 0;
 
 		PlayTone( 2250, Square632HzData, SQUARE_632HZ_SIZE, 1 );
 
@@ -2584,10 +2660,10 @@ void TIM6_DAC_IRQHandler()
 
 	// read all the auxililary inputs and save their times for later use for recording time and/or speed
 	// if it is zero it can be set, if it's not? then it can't be changed until it's value is used and reset
-	if( (GPIOB->IDR & 0x0080) == 0 && AUX_1_SENSOR_A_Tick == 0 ) AUX_1_SENSOR_A_Tick = Timer_Tick;
-	if( (GPIOB->IDR & 0x0100) == 0 && AUX_1_SENSOR_B_Tick == 0 ) AUX_1_SENSOR_B_Tick = Timer_Tick;
-	if( (GPIOB->IDR & 0x0010) == 0 && AUX_2_SENSOR_A_Tick == 0 ) AUX_2_SENSOR_A_Tick = Timer_Tick;
-	if( (GPIOB->IDR & 0x0020) == 0 && AUX_2_SENSOR_B_Tick == 0 ) AUX_2_SENSOR_B_Tick = Timer_Tick;
+	if( (GPIOB->IDR & 0x0080) == 0 && Aux_1_Sensor_A_Tick == 0 ) Aux_1_Sensor_A_Tick = Timer_Tick;
+	if( (GPIOB->IDR & 0x0100) == 0 && Aux_1_Sensor_B_Tick == 0 ) Aux_1_Sensor_B_Tick = Timer_Tick;
+	if( (GPIOB->IDR & 0x0010) == 0 && Aux_2_Sensor_A_Tick == 0 ) Aux_2_Sensor_A_Tick = Timer_Tick;
+	if( (GPIOB->IDR & 0x0020) == 0 && Aux_2_Sensor_B_Tick == 0 ) Aux_2_Sensor_B_Tick = Timer_Tick;
 
 	// handle dropping the gate
 	if( Pulse_Solenoid == 1 )
