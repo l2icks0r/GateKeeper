@@ -17,9 +17,9 @@
 
 #include "codec.h"
 
-//#define STARTUP_SOUND
-//#define CADENCE
-//#define NUMBERS
+#define STARTUP_SOUND
+#define CADENCE
+#define NUMBERS
 
 #ifdef STARTUP_SOUND
 #include "StartupSound.c"
@@ -137,16 +137,6 @@ void PlayTimeOrPercent( unsigned int milliseconds, int play_type );
 void PlaySpeed( int integer, int fractional );
 void PlayDigit( int number );
 
-// timing
-unsigned int CheckSensor	( const unsigned int sensor );
-void GetTimeString			( const unsigned int sensor_ticks, char *time_string );
-void GetTimesString			( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_string, char *sensor_2_string );
-
-void GetTimeHistoryString	( unsigned int sensor,	char *time_string );
-void GetSpeedHistoryString	( unsigned int sensor_a, unsigned int sensor_b, char *speed_string );
-
-void PrintElapsedTime		( unsigned int milliseconds, unsigned int display_line ); // Elapsed time: 999:59.999
-
 // play cadence, drive lights, power magnet/solenoid/air ram
 void DropGate( void );
 void PlayDropGateAnimation( void ); // TODO: implement this
@@ -158,7 +148,33 @@ void PulseSolenoid( unsigned int pulse_time );
 // turns magnet off after delay set in GATE_DROPS_ON
 void TurnMagnetOff( void );
 
+// timing
+unsigned int CheckSensor( const unsigned int sensor );
 
+void GetTimeFromTicks( unsigned int ticks, unsigned int *minutes, unsigned int *seconds, unsigned int *tens_place, unsigned int *hund_place, unsigned int *thou_place );
+void GetTimeString	 ( const unsigned int sensor_ticks, char *time_string );
+void GetTimesString	 ( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_string, char *sensor_2_string );
+
+void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
+					 unsigned int * elapsed_time, float * speed , unsigned int * speed_integer, unsigned int * speed_fractional );
+
+void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elapsed_time, const int speed, const unsigned int speed_integer, const unsigned int speed_fractional );
+void ProcessElapsedTimer( unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B );
+
+int DoTimeAndDisabled ( const unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B, const char * timing_string, const char * elapsed_string );
+int DoTimeAndSpeed	  ( const unsigned int aux1_option,
+						  const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B );
+int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
+						  const char * timing_string, const char * elapsed_string );
+void DoSprintTimer	  ( unsigned int aux_config );
+
+void CopyTimerHistoryDown ( void );
+void AddTimeToTimerHistory( unsigned int aux_config, unsigned int elapsed_time, char *time_string );
+
+void PrintElapsedTime( unsigned int milliseconds, unsigned int display_line ); // Elapsed time: 999:59.999
+
+
+//
 enum INPUTS { 	BUTTON_A 		= 0x0001,
 				BUTTON_B 		= 0x0010,
 				BUTTON_C 		= 0x0020,
@@ -277,585 +293,9 @@ static unsigned int Aux_2_Sensor_B_Tick = 0;
 static unsigned int Aux_1_Sensor_Spacing = 0;
 static unsigned int Aux_2_Sensor_Spacing = 0;
 
-
-static float starting_charge_level = 0.0f;
-static float charge_change = 0.0f;
-
-float BatteryLevel( const unsigned int display_level )
-{
-	float battery_level = 0;
-	int a = 0;
-	for(; a < 10000; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
-	battery_level /= 10000;
-
-	// save battery level at higher precision
-	const float charge_level = battery_level;
-
-	if( starting_charge_level < 1.0f )
-	{
-		starting_charge_level = charge_level;
-		return 0;
-	}
-
-	charge_change += charge_level - starting_charge_level;
-
-	battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
-	Menu_Array[ BATTERY_CONDITION ].context = ( battery_level > 100.0f ) ? 100 : (int)battery_level;
-
-	// 85% battery level is 13vdc
-
-	// recharge at battery_level == 260,000
-	if( charge_level < 260000.0f || display_level == 1 )
-	{
-		// write condition to bottom line and update the display to show new condition
-		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 0 );
-		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 1 );
-
-		if( Menu_Array[ BATTERY_CONDITION ].context < 0  )
-		{
-			if( charge_change > 2500 )
-			{
-				WriteLCD_LineCentered( "* CHARGING *", 0 );
-				WriteLCD_LineCentered( "* CHARGING *", 1 );
-			}
-		}
-		else
-		{
-			WriteLCD_LineCentered( "BATTERY CHARGE LEVEL", 0 );
-			sprintf( Menu_Array[ BATTERY_CONDITION ].item[0], "%d%%", Menu_Array[ BATTERY_CONDITION ].context );
-			WriteLCD_LineCentered( Menu_Array[ BATTERY_CONDITION ].item[0], 1 );
-		}
-
-		UpdateLCD();
-	}
-
-	return charge_level;
-}
-
-unsigned int CheckSensor( const unsigned int sensor )
-{
-	switch( sensor )
-	{
-		case AUX_1_SENSOR_A: return Aux_1_Sensor_A_Tick;
-		case AUX_1_SENSOR_B: return Aux_1_Sensor_B_Tick;
-		case AUX_2_SENSOR_A: return Aux_2_Sensor_A_Tick;
-		case AUX_2_SENSOR_B: return Aux_2_Sensor_B_Tick;
-	}
-
-	return 0;
-}
-
-void GetTimeFromTicks( unsigned int ticks, unsigned int *minutes, unsigned int *seconds, unsigned int *tens_place, unsigned int *hund_place, unsigned int *thou_place )
-{
-	*minutes     = (ticks / 600000);
-	*seconds     = (ticks / 10000 ) % 60;
-	*tens_place  = (ticks / 1000  ) % 10;
-	*hund_place  = (ticks / 100	  ) % 10;
-	*thou_place  = (ticks / 10	  ) % 10;
-}
-
-void GetTimeString( const unsigned int sensor_ticks, char *time_string )
-{
-	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
-
-	if( sensor_ticks == 0 )
-		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
-	else
-		GetTimeFromTicks( sensor_ticks, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
-
-	char temp_string[ 2 * DISPLAY_WIDTH ];
-
-	if( minutes > 0 )
-		sprintf( temp_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
-	else
-		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
-
-	const int length = strlen(temp_string) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( temp_string );
-	int i;
-	for( i = 0; i < length; i++ ) time_string[ i ] = temp_string[ i ];
-}
-
-void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_time_string, char *sensor_2_time_string )
-{
-	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
-
-	int i, j;
-
-	if( sensor_1 == 0 )
-		{ sprintf( sensor_1_time_string, "AUX 1:" ); 		sensor_1_time_string[ 6 ] = 0x20; }
-	else
-		{ sprintf( sensor_1_time_string, "AUX 1 TIME:" );	sensor_1_time_string[ 11 ] = 0x20; }
-
-	if( sensor_2 == 0 )
-		{ sprintf( sensor_2_time_string, "AUX 2:" ); 		sensor_2_time_string[ 6 ] = 0x20; }
-	else
-		{ sprintf( sensor_2_time_string, "AUX 2 TIME:" ); 	sensor_2_time_string[ 11 ] = 0x20; }
-
-
-	// construct sensor 1 time string
-	if( sensor_1 == 0 )
-		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
-	else
-		GetTimeFromTicks( sensor_1, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
-
-	char temp_string[ 2 * DISPLAY_WIDTH ];
-
-	if( minutes > 0 )
-		sprintf( temp_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
-	else
-		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
-
-	int adjust = strlen( temp_string ) > DISPLAY_WIDTH ? 0 : strlen( temp_string );
-	for( i = 0, j = DISPLAY_WIDTH - adjust; j < DISPLAY_WIDTH; j++, i++ ) sensor_1_time_string[ j ] = temp_string[ i ];
-
-
-	// construct sensor 2 time string
-	if( sensor_2 == 0 )
-		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
-	else
-		GetTimeFromTicks( sensor_2, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
-
-	if( minutes > 0 )
-		sprintf( temp_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
-	else
-		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
-
-	adjust = strlen( temp_string ) > DISPLAY_WIDTH ? 0 : strlen( temp_string );
-	for( i = 0, j = DISPLAY_WIDTH - adjust; j < DISPLAY_WIDTH; j++, i++ ) sensor_2_time_string[ j ] = temp_string[ i ];
-}
-
-void CopyTimerHistoryDown( void )
-{
-	int j = 0, k;
-	// only store up to MAX_TIMING_HISTORIES
-
-	for( j = MAX_TIMING_HISTORIES - 1; j >= 0 ; j-- )
-	{ // just scroll entire array down before each add and add new time at position 0 in the Timer_History array
-		Timer_History[ j ].number			= Timer_History[ j - 1 ].number;
-		Timer_History[ j ].elapsed_time		= Timer_History[ j - 1 ].elapsed_time;
-		Timer_History[ j ].speed_integer	= Timer_History[ j - 1 ].speed_integer;
-		Timer_History[ j ].speed_fractional	= Timer_History[ j - 1 ].speed_fractional;
-
-		Timer_History[ j ].is_a_speed		= Timer_History[ j - 1 ].is_a_speed;
-		Timer_History[ j ].aux_port			= Timer_History[ j - 1 ].aux_port;
-
-		for( k = 0; k < DISPLAY_WIDTH; k++ )
-		{
-			Timer_History[ j ].time_string[ k ]		  = Timer_History[ j - 1 ].time_string[ k ];
-			Timer_History[ j ].speed_string[ k ]	  = Timer_History[ j - 1 ].speed_string[ k ];
-			Timer_History[ j ].time_speed_string[ k ] = Timer_History[ j - 1 ].time_speed_string[ k ];
-		}
-	}
-}
-
-void AddTimeToTimerHistory( unsigned int aux_config, unsigned int elapsed_time, char *time_string )
-{
-	CopyTimerHistoryDown();
-
-	// used by TIMER_HISTORY to know how many entries to display
-	Timer_History_Index++;
-	Timer_History_Index = ( Timer_History_Index > MAX_TIMING_HISTORIES ) ? MAX_TIMING_HISTORIES : Timer_History_Index;
-
-	// reset history index at 100000 (like anyone would store that many - EVER)
-	Timer_History_Number++;
-	Timer_History_Number = ( Timer_History_Number > MAX_HISTORY_NUMBER ) ? 1 : Timer_History_Number;
-
-	// save this timer result
-	Timer_History[ 0 ].number			= Timer_History_Number;
-	Timer_History[ 0 ].elapsed_time		= elapsed_time;
-	Timer_History[ 0 ].speed_integer	= 0;
-	Timer_History[ 0 ].speed_fractional	= 0;
-
-	Timer_History[ 0 ].aux_port			= aux_config;
-
-	// copy timer strings to timer history index 0 since entire array has scrolled down
-	const int length = strlen( time_string ) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( time_string );
-	int i;
-	for( i = 0; i < length; i++ ) Timer_History[ 0 ].time_string[ i ] = time_string[ i ];
-
-	// update menu text
-	SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].time_string );
-}
-
-void ProcessElapsedTimer( unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B )
-{
-	char elapsed_time_string[ DISPLAY_WIDTH ] = ZEROS;
-
-	unsigned int elapsed_time = 0;
-
-	if( sensor_A > 0 )
-	{
-		elapsed_time = sensor_A;
-		GetTimeString( elapsed_time, elapsed_time_string );
-	}
-	else if( sensor_B > 0 )
-	{
-		elapsed_time = sensor_B;
-		GetTimeString( elapsed_time, elapsed_time_string );
-	}
-
-	// update timing histories
-	AddTimeToTimerHistory( aux_config, elapsed_time, elapsed_time_string );
-}
-
-void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
-					 unsigned int * elapsed_time, float * speed , unsigned int * speed_integer, unsigned int * speed_fractional )
-{
-	// (1.34112mm/1us)(10,000us/is)(1in/25.4mm)(1ft/12in) = 44ft/s = 30mi/hr
-	// mph(Dmm,Tus)=10,000*Dmm/304.8Tus
-	*elapsed_time = (sensor_A < sensor_B) ? sensor_B : sensor_A;
-	const unsigned int sensor_delta	= (sensor_A < sensor_B) ? sensor_B - sensor_A : sensor_A - sensor_B;
-
-	*speed = (10000.0f * (25.4f * (float)sensor_spacing) ) / (304.8f * (float)(sensor_delta));
-	*speed_integer 	 = (int)*speed;
-	*speed_fractional= (int)(*speed * 1000.0f) % 1000;
-}
-
-void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elapsed_time, const int speed, const unsigned int speed_integer, const unsigned int speed_fractional )
-{
-	CopyTimerHistoryDown();
-
-	Timer_History_Index++;
-	Timer_History_Index = ( Timer_History_Index > MAX_TIMING_HISTORIES ) ? MAX_TIMING_HISTORIES : Timer_History_Index;
-
-	// reset history index at 10000000 (like anyone would store that many - EVER)
-	Timer_History_Number++;
-	Timer_History_Number = ( Timer_History_Number > MAX_HISTORY_NUMBER ) ? 1 : Timer_History_Number;
-
-	// save this timer result
-	Timer_History[ 0 ].number			= Timer_History_Number;
-	Timer_History[ 0 ].elapsed_time		= elapsed_time;
-	Timer_History[ 0 ].speed_integer	= speed_integer;
-	Timer_History[ 0 ].speed_fractional	= speed_fractional;
-
-	Timer_History[ 0 ].is_a_speed		= ((speed_integer != 0) || (speed_fractional != 0));
-
-	Timer_History[ 0 ].aux_port			= aux_config;
-
-	// pad temp strings out to handle memory overruns before copy occurs
-	char time_string [ 2 * DISPLAY_WIDTH ];
-	char speed_string[ 2 * DISPLAY_WIDTH ];
-
-	sprintf( speed_string, "%d.%03d mph", speed_integer, speed_fractional );
-
-	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
-
-	GetTimeFromTicks( elapsed_time, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
-
-	if( minutes > 0 )
-		sprintf( time_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
-	else
-		sprintf( time_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
-
-	int i;
-	for( i = 0; i < DISPLAY_WIDTH; i++ )
-	{
-		Timer_History[ 0 ].time_string[ i ]  = time_string[ i ];
-		Timer_History[ 0 ].speed_string[ i ] = speed_string[ i ];
-	}
-
-	// construct time and speed strings
-	char time_speed_string[ 2 * DISPLAY_WIDTH ];
-
-	if( minutes < 1 )
-	{
-		sprintf( time_speed_string, "%d.%d%d%d @ %s", seconds, tens_place, hund_place, thou_place, speed_string );
-	}
-	else if( (minutes >  0 && minutes <  9 && seconds < 10 && speed > 9 ) ||
-			 (minutes < 10 && seconds < 10 && speed > 9) ||
-			 (minutes < 10 && seconds >  9 && speed < 10)||
-			 (minutes >  9 && seconds < 10 && speed < 10) )
-	{
-		sprintf( time_speed_string, "%d:%d.%d%d%d @ %s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
-	}
-	else if( (minutes < 10 && seconds > 9 && speed > 9) ||
-			 (minutes >  9 && seconds > 9 && speed < 9) ||
-			 (minutes >  0 && minutes < 9 && seconds > 9 && speed > 10) )
-	{
-		sprintf( time_speed_string, "%d:%d.%d%d%d @%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
-	}
-	else {
-		sprintf( time_speed_string, "%d:%d.%d%d%d@%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
-	}
-
-	const int length = strlen( time_speed_string ) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( time_speed_string );
-	for( i = 0; i < length; i++ ) Timer_History[ 0 ].time_speed_string[ i ] = time_speed_string[ i ];
-
-	// update menu text
-	if( Timer_History[ 0 ].elapsed_time == 0 )
-		SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].speed_string );
-	else
-		SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].time_speed_string );
-}
-
-int DoTimeAndDisabled( const unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B, const char * timing_string, const char * elapsed_string )
-{
-	if( sensor_A == 0 && sensor_B == 0 )
-	{
-		WriteLCD_LineCentered( timing_string, 0 );
-		PrintElapsedTime( Timer_Tick, 1 );
-		UpdateLCD();
-
-		return 1;
-	}
-
-	ProcessElapsedTimer( aux_config, sensor_A, sensor_B );
-
-	WriteLCD_LineCentered( elapsed_string, 0 );
-	WriteLCD_LineCentered( Timer_History[ 0 ].time_string, 1 );
-	UpdateLCD();
-
-	// say elapsed time
-#ifdef CADENCE
-	PlaySilence( 100, 0 );
-	PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
-	PlaySilence( 1, 0 );
-	InitAudio();
-#endif
-
-	Delay( 2000 );
-
-	return 0;
-}
-
-int DoTimeAndSpeed( const unsigned int aux1_option,
-					const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B )
-{
-	char line_0[ DISPLAY_WIDTH ] = SPACES;
-	char line_1[ DISPLAY_WIDTH ] = SPACES;
-
-	unsigned int time_config = 0, speed_config = 0;
-
-	unsigned int sensor_1 = 0, sensor_2 = 0;
-
-	if( sensor_1 == 0 && (sensor_1A | sensor_1B) != 0 ) sensor_1 = (sensor_1A | sensor_1B);
-	if( sensor_2 == 0 && (sensor_2A | sensor_2B) != 0 ) sensor_2 = (sensor_2A | sensor_2B);
-
-	GetTimesString( sensor_1, sensor_2, line_0, line_1 );
-
-	WriteLCD_Line( line_0, 0 );
-	WriteLCD_Line( line_1, 1 );
-	UpdateLCD();
-
-	unsigned int time_sensor, time_sensor_A, time_sensor_B, speed_sensor, speed_sensor_A, speed_sensor_B, sensor_spacing;
-
-	if( aux1_option == AUX_TIME_SPEED )
-	{
-		time_config	 	= AUX_1_CONFIG;
-		speed_config	= AUX_2_CONFIG;
-
-		speed_sensor	= sensor_1;				time_sensor		= sensor_2;
-		speed_sensor_A	= sensor_1A;			time_sensor_A	= sensor_2A;
-		speed_sensor_B	= sensor_1B;			time_sensor_B	= sensor_2B;
-		sensor_spacing	= Aux_1_Sensor_Spacing;
-	}
-	else
-	{
-		time_config	 	= AUX_2_CONFIG;
-		speed_config	= AUX_1_CONFIG;
-
-		speed_sensor	= sensor_2;				time_sensor		= sensor_1;
-		speed_sensor_A	= sensor_2A;			time_sensor_A	= sensor_1A;
-		speed_sensor_B	= sensor_2B;			time_sensor_B	= sensor_1B;
-		sensor_spacing	= Aux_2_Sensor_Spacing;
-	}
-
-	if( speed_sensor_A == 0 || speed_sensor_B == 0 || time_sensor == 0 ) return 1;
-
-	if( Cancel_Timing == 0 )
-	{
-		unsigned int elapsed_time, speed_integer, speed_fractional;
-		float speed;
-
-		CalculateSpeed( speed_sensor_A, speed_sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
-
-		if( ( time_sensor > speed_sensor_A ) || time_sensor > speed_sensor_B )
-		{
-			ProcessTimeAndSpeed( speed_config, elapsed_time, speed, speed_integer, speed_fractional );
-			ProcessElapsedTimer( time_config, time_sensor_A, time_sensor_B );
-
-			WriteLCD_LineCentered( Timer_History[ 1 ].time_speed_string, 0 );
-			WriteLCD_LineCentered( Timer_History[ 0 ].time_string, 1 );
-		}
-		else
-		{
-			ProcessElapsedTimer( time_config, time_sensor_A, time_sensor_B );
-			ProcessTimeAndSpeed( speed_config, elapsed_time, speed, speed_integer, speed_fractional );
-
-			WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 0 );
-			WriteLCD_LineCentered( Timer_History[ 1 ].time_string, 1 );
-		}
-
-		UpdateLCD();
-
-		Delay( 2000 );
-	}
-
-	return 0;
-}
-
-int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
-						const char * timing_string, const char * elapsed_string )
-{
-	if( sensor_A == 0 || sensor_B == 0 )
-	{
-		WriteLCD_LineCentered( timing_string, 0 );
-		PrintElapsedTime( Timer_Tick, 1 );
-		UpdateLCD();
-	}
-
-	if( sensor_A == 0 || sensor_B == 0  ) return 1;
-
-	if( Cancel_Timing == 0 )
-	{
-		unsigned int elapsed_time, speed_integer, speed_fractional;
-		float speed;
-
-		CalculateSpeed( sensor_A, sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
-
-		ProcessTimeAndSpeed( aux_config, elapsed_time, speed, speed_integer, speed_fractional );
-
-		WriteLCD_LineCentered( elapsed_string, 0 );
-		WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
-		UpdateLCD();
-
-		Delay( 3000 );
-	}
-
-	return 0;
-}
-
-void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case when the second sensor is a time only
-{
-	unsigned int sensor_1 = 0;
-	unsigned int sensor_2 = 0;
-
-	unsigned int sensor_1A = 0, sensor_1B = 0, sensor_2A = 0, sensor_2B = 0;
-
-	char time_string[ DISPLAY_WIDTH ] = ZEROS;
-
-	// reset all the timers
-	Timer_Tick			= 0;
-	Aux_1_Sensor_A_Tick = 0;
-	Aux_1_Sensor_B_Tick = 0;
-	Aux_2_Sensor_A_Tick = 0;
-	Aux_2_Sensor_B_Tick = 0;
-
-	int inputs = 0;
-
-	float speed = 0;
-
-	do
-	{
-		ReadInputs( & inputs );
-
-		// reassign based on which is actually AUX 1, AUX 2
-		if( aux_config == AUX_1_CONFIG )
-		{
-			sensor_1A = Aux_1_Sensor_A_Tick;	sensor_1B = Aux_1_Sensor_B_Tick;
-			sensor_2A = Aux_2_Sensor_A_Tick;	sensor_2B = Aux_2_Sensor_B_Tick;
-		}
-		else
-		{
-			sensor_1A = Aux_2_Sensor_A_Tick;	sensor_1B = Aux_2_Sensor_B_Tick;
-			sensor_2A = Aux_1_Sensor_A_Tick;	sensor_2B = Aux_1_Sensor_B_Tick;
-		}
-
-		if( sensor_1A == 0 && sensor_1B == 0 && sensor_2A == 0 && sensor_2B == 0 )
-		{
-			WriteLCD_LineCentered( "WAITING FOR SENSOR", 0 );
-
-			if( speed == 0 ) WriteLCD_LineCentered( SPACES, 1 );
-
-			UpdateLCD();
-
-			Timer_Tick = 0;
-
-			continue;
-		}
-
-		if( sensor_1A != 0 || sensor_1B != 0 || sensor_2A != 0 || sensor_2B != 0 )
-		{
-			GetTimeString( Timer_Tick, time_string );
-
-			if( aux_config == AUX_1_CONFIG )
-				WriteLCD_LineCentered( "TIMING AUX 1", 0 );
-			else
-				WriteLCD_LineCentered( "TIMING AUX 2", 0 );
-
-			WriteLCD_LineCentered( time_string, 1 );
-			UpdateLCD();
-
-			// sensor 1 is used to keep track of time
-			if( sensor_1 == 0 && (sensor_1A || sensor_1B) != 0 )	sensor_1 = (sensor_1A | sensor_1B);
-
-			// sensor 2 is used to calculate speed
-			if( sensor_2 == 0 && (sensor_2A || sensor_2B) != 0 )	sensor_2 = (sensor_2A | sensor_2B);
-
-
-			// check to see if a speed should be displayed
-			if( sensor_1A != 0 && sensor_1B != 0 )
-			{
-				const unsigned int sensor_spacing = (aux_config == AUX_1_CONFIG ) ? Aux_1_Sensor_Spacing : Aux_2_Sensor_Spacing;
-
-				unsigned int sensor_delta = 0, speed_integer = 0, speed_fractional = 0;
-
-				// determine speed
-				CalculateSpeed( sensor_1A, sensor_1B, sensor_spacing, & sensor_delta, & speed, & speed_integer, & speed_fractional );
-
-				// determine elapsed time if it was triggered
-				unsigned int elapsed_time = 0;
-
-				if( sensor_2A != 0 || sensor_2B != 0 )
-				{
-					const unsigned int end_time = ( sensor_1A < sensor_1B ) ? sensor_1A : sensor_1B;
-					elapsed_time = end_time - sensor_2;
-				}
-
-				ProcessTimeAndSpeed( aux_config, elapsed_time, speed, speed_integer, speed_fractional );
-
-				if( elapsed_time > 0 )
-				{
-					WriteLCD_LineCentered( "LAST TIME AND SPEED", 0 );
-					WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
-					UpdateLCD();
-
-#ifdef NUMBERS
-					PlaySilence( 100, 1 );
-					PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
-					PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
-
-					PlaySample24khz( AtData, 0, AT_SIZE, 1 );
-					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
-					InitAudio();
-#endif
-				}
-				else
-				{
-					WriteLCD_LineCentered( "LAST SPEED", 0 );
-					WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
-					UpdateLCD();
-#ifdef NUMBERS
-					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
-					InitAudio();
-#endif
-				}
-
-				Delay( 2000 );
-
-				// reset all the timers
-				Timer_Tick			= 0;
-				Aux_1_Sensor_A_Tick = 0;
-				Aux_1_Sensor_B_Tick = 0;
-				Aux_2_Sensor_A_Tick = 0;
-				Aux_2_Sensor_B_Tick = 0;
-
-				continue;
-			}
-		}
-
-	} while( inputs != BUTTON_E );
-}
+// battery related
+static float Starting_Charge_Level = 0.0f;
+static float Charge_Change 		   = 0.0f;
 
 
 
@@ -878,8 +318,8 @@ int main( void )
 
 	BatteryLevel( 1 );
 
-	starting_charge_level = 0;
-	charge_change = 0;
+	Starting_Charge_Level = 0;
+	Charge_Change = 0;
 
 	InitAudio();
 
@@ -942,8 +382,8 @@ int main( void )
 
 			case RECHARGE:
 			{
-				starting_charge_level = 0;
-				charge_change = 0;
+				Starting_Charge_Level = 0;
+				Charge_Change = 0;
 
 				SetAttenuator( 0x1000 );
 				SetAttenuator( 0x0000 );
@@ -2041,7 +1481,7 @@ int main( void )
 #endif
 							}
 
-							Delay( 2000 );
+							Delay( 4000 );
 
 							break;
 						}
@@ -2287,6 +1727,531 @@ void DropGate( void )
 		Delay( 60 );
 	}
 #endif
+}
+
+unsigned int CheckSensor( const unsigned int sensor )
+{
+	switch( sensor )
+	{
+		case AUX_1_SENSOR_A: return Aux_1_Sensor_A_Tick;
+		case AUX_1_SENSOR_B: return Aux_1_Sensor_B_Tick;
+		case AUX_2_SENSOR_A: return Aux_2_Sensor_A_Tick;
+		case AUX_2_SENSOR_B: return Aux_2_Sensor_B_Tick;
+	}
+
+	return 0;
+}
+
+void GetTimeFromTicks( unsigned int ticks, unsigned int *minutes, unsigned int *seconds, unsigned int *tens_place, unsigned int *hund_place, unsigned int *thou_place )
+{
+	*minutes     = (ticks / 600000);
+	*seconds     = (ticks / 10000 ) % 60;
+	*tens_place  = (ticks / 1000  ) % 10;
+	*hund_place  = (ticks / 100	  ) % 10;
+	*thou_place  = (ticks / 10	  ) % 10;
+}
+
+void GetTimeString( const unsigned int sensor_ticks, char *time_string )
+{
+	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
+
+	if( sensor_ticks == 0 )
+		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+	else
+		GetTimeFromTicks( sensor_ticks, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+
+	char temp_string[ 2 * DISPLAY_WIDTH ];
+
+	if( minutes > 0 )
+		sprintf( temp_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
+	else
+		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
+
+	const int length = strlen(temp_string) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( temp_string );
+	int i;
+	for( i = 0; i < length; i++ ) time_string[ i ] = temp_string[ i ];
+}
+
+void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_time_string, char *sensor_2_time_string )
+{
+	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
+
+	int i, j;
+
+	if( sensor_1 == 0 )
+		{ sprintf( sensor_1_time_string, "AUX 1:" ); 		sensor_1_time_string[ 6 ] = 0x20; }
+	else
+		{ sprintf( sensor_1_time_string, "AUX 1 TIME:" );	sensor_1_time_string[ 11 ] = 0x20; }
+
+	if( sensor_2 == 0 )
+		{ sprintf( sensor_2_time_string, "AUX 2:" ); 		sensor_2_time_string[ 6 ] = 0x20; }
+	else
+		{ sprintf( sensor_2_time_string, "AUX 2 TIME:" ); 	sensor_2_time_string[ 11 ] = 0x20; }
+
+
+	// construct sensor 1 time string
+	if( sensor_1 == 0 )
+		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+	else
+		GetTimeFromTicks( sensor_1, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+
+	char temp_string[ 2 * DISPLAY_WIDTH ];
+
+	if( minutes > 0 )
+		sprintf( temp_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
+	else
+		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
+
+	int adjust = strlen( temp_string ) > DISPLAY_WIDTH ? 0 : strlen( temp_string );
+	for( i = 0, j = DISPLAY_WIDTH - adjust; j < DISPLAY_WIDTH; j++, i++ ) sensor_1_time_string[ j ] = temp_string[ i ];
+
+
+	// construct sensor 2 time string
+	if( sensor_2 == 0 )
+		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+	else
+		GetTimeFromTicks( sensor_2, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+
+	if( minutes > 0 )
+		sprintf( temp_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
+	else
+		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
+
+	adjust = strlen( temp_string ) > DISPLAY_WIDTH ? 0 : strlen( temp_string );
+	for( i = 0, j = DISPLAY_WIDTH - adjust; j < DISPLAY_WIDTH; j++, i++ ) sensor_2_time_string[ j ] = temp_string[ i ];
+}
+
+void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
+					 unsigned int * elapsed_time, float * speed , unsigned int * speed_integer, unsigned int * speed_fractional )
+{
+	// (1.34112mm/1us)(10,000us/is)(1in/25.4mm)(1ft/12in) = 44ft/s = 30mi/hr
+	// mph(Dmm,Tus)=10,000*Dmm/304.8Tus
+	*elapsed_time = (sensor_A < sensor_B) ? sensor_B : sensor_A;
+	const unsigned int sensor_delta	= (sensor_A < sensor_B) ? sensor_B - sensor_A : sensor_A - sensor_B;
+
+	*speed = (10000.0f * (25.4f * (float)sensor_spacing) ) / (304.8f * (float)(sensor_delta));
+	*speed_integer 	 = (int)*speed;
+	*speed_fractional= (int)(*speed * 1000.0f) % 1000;
+}
+
+void ProcessElapsedTimer( unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B )
+{
+	char elapsed_time_string[ DISPLAY_WIDTH ] = ZEROS;
+
+	unsigned int elapsed_time = 0;
+
+	if( sensor_A > 0 )
+	{
+		elapsed_time = sensor_A;
+		GetTimeString( elapsed_time, elapsed_time_string );
+	}
+	else if( sensor_B > 0 )
+	{
+		elapsed_time = sensor_B;
+		GetTimeString( elapsed_time, elapsed_time_string );
+	}
+
+	// update timing histories
+	AddTimeToTimerHistory( aux_config, elapsed_time, elapsed_time_string );
+}
+
+void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elapsed_time, const int speed, const unsigned int speed_integer, const unsigned int speed_fractional )
+{
+	CopyTimerHistoryDown();
+
+	Timer_History_Index++;
+	Timer_History_Index = ( Timer_History_Index > MAX_TIMING_HISTORIES ) ? MAX_TIMING_HISTORIES : Timer_History_Index;
+
+	// reset history index at 10000000 (like anyone would store that many - EVER)
+	Timer_History_Number++;
+	Timer_History_Number = ( Timer_History_Number > MAX_HISTORY_NUMBER ) ? 1 : Timer_History_Number;
+
+	// save this timer result
+	Timer_History[ 0 ].number			= Timer_History_Number;
+	Timer_History[ 0 ].elapsed_time		= elapsed_time;
+	Timer_History[ 0 ].speed_integer	= speed_integer;
+	Timer_History[ 0 ].speed_fractional	= speed_fractional;
+
+	Timer_History[ 0 ].is_a_speed		= ((speed_integer != 0) || (speed_fractional != 0));
+
+	Timer_History[ 0 ].aux_port			= aux_config;
+
+	// pad temp strings out to handle memory overruns before copy occurs
+	char time_string [ 2 * DISPLAY_WIDTH ];
+	char speed_string[ 2 * DISPLAY_WIDTH ];
+
+	sprintf( speed_string, "%d.%03d mph", speed_integer, speed_fractional );
+
+	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
+
+	GetTimeFromTicks( elapsed_time, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+
+	if( minutes > 0 )
+		sprintf( time_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
+	else
+		sprintf( time_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
+
+	int i;
+	for( i = 0; i < DISPLAY_WIDTH; i++ )
+	{
+		Timer_History[ 0 ].time_string[ i ]  = time_string[ i ];
+		Timer_History[ 0 ].speed_string[ i ] = speed_string[ i ];
+	}
+
+	// construct time and speed strings
+	char time_speed_string[ 2 * DISPLAY_WIDTH ];
+
+	if( minutes < 1 )
+	{
+		sprintf( time_speed_string, "%d.%d%d%d @ %s", seconds, tens_place, hund_place, thou_place, speed_string );
+	}
+	else if( (minutes >  0 && minutes <  9 && seconds < 10 && speed > 9 ) ||
+			 (minutes < 10 && seconds < 10 && speed > 9) ||
+			 (minutes < 10 && seconds >  9 && speed < 10)||
+			 (minutes >  9 && seconds < 10 && speed < 10) )
+	{
+		sprintf( time_speed_string, "%d:%d.%d%d%d @ %s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
+	}
+	else if( (minutes < 10 && seconds > 9 && speed > 9) ||
+			 (minutes >  9 && seconds > 9 && speed < 9) ||
+			 (minutes >  0 && minutes < 9 && seconds > 9 && speed > 10) )
+	{
+		sprintf( time_speed_string, "%d:%d.%d%d%d @%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
+	}
+	else {
+		sprintf( time_speed_string, "%d:%d.%d%d%d@%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
+	}
+
+	const int length = strlen( time_speed_string ) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( time_speed_string );
+	for( i = 0; i < length; i++ ) Timer_History[ 0 ].time_speed_string[ i ] = time_speed_string[ i ];
+
+	// update menu text
+	if( Timer_History[ 0 ].elapsed_time == 0 )
+		SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].speed_string );
+	else
+		SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].time_speed_string );
+}
+
+int DoTimeAndDisabled( const unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B, const char * timing_string, const char * elapsed_string )
+{
+	if( sensor_A == 0 && sensor_B == 0 )
+	{
+		WriteLCD_LineCentered( timing_string, 0 );
+		PrintElapsedTime( Timer_Tick, 1 );
+		UpdateLCD();
+
+		return 1;
+	}
+
+	ProcessElapsedTimer( aux_config, sensor_A, sensor_B );
+
+	WriteLCD_LineCentered( elapsed_string, 0 );
+	WriteLCD_LineCentered( Timer_History[ 0 ].time_string, 1 );
+	UpdateLCD();
+
+	// say elapsed time
+#ifdef CADENCE
+	PlaySilence( 100, 0 );
+	PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+	PlaySilence( 1, 0 );
+	InitAudio();
+#endif
+
+	Delay( 2000 );
+
+	return 0;
+}
+
+int DoTimeAndSpeed( const unsigned int aux1_option,
+					const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B )
+{
+	char line_0[ DISPLAY_WIDTH ] = SPACES;
+	char line_1[ DISPLAY_WIDTH ] = SPACES;
+
+	unsigned int time_config = 0, speed_config = 0;
+
+	unsigned int sensor_1 = 0, sensor_2 = 0;
+
+	if( sensor_1 == 0 && (sensor_1A | sensor_1B) != 0 ) sensor_1 = (sensor_1A | sensor_1B);
+	if( sensor_2 == 0 && (sensor_2A | sensor_2B) != 0 ) sensor_2 = (sensor_2A | sensor_2B);
+
+	GetTimesString( sensor_1, sensor_2, line_0, line_1 );
+
+	WriteLCD_Line( line_0, 0 );
+	WriteLCD_Line( line_1, 1 );
+	UpdateLCD();
+
+	unsigned int time_sensor, time_sensor_A, time_sensor_B, speed_sensor, speed_sensor_A, speed_sensor_B, sensor_spacing;
+
+	if( aux1_option == AUX_TIME_SPEED )
+	{
+		time_config	 	= AUX_1_CONFIG;
+		speed_config	= AUX_2_CONFIG;
+
+		speed_sensor	= sensor_1;				time_sensor		= sensor_2;
+		speed_sensor_A	= sensor_1A;			time_sensor_A	= sensor_2A;
+		speed_sensor_B	= sensor_1B;			time_sensor_B	= sensor_2B;
+		sensor_spacing	= Aux_1_Sensor_Spacing;
+	}
+	else
+	{
+		time_config	 	= AUX_2_CONFIG;
+		speed_config	= AUX_1_CONFIG;
+
+		speed_sensor	= sensor_2;				time_sensor		= sensor_1;
+		speed_sensor_A	= sensor_2A;			time_sensor_A	= sensor_1A;
+		speed_sensor_B	= sensor_2B;			time_sensor_B	= sensor_1B;
+		sensor_spacing	= Aux_2_Sensor_Spacing;
+	}
+
+	if( speed_sensor_A == 0 || speed_sensor_B == 0 || time_sensor == 0 ) return 1;
+
+	if( Cancel_Timing == 0 )
+	{
+		unsigned int elapsed_time, speed_integer, speed_fractional;
+		float speed;
+
+		CalculateSpeed( speed_sensor_A, speed_sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
+
+		if( ( time_sensor > speed_sensor_A ) || time_sensor > speed_sensor_B )
+		{
+			ProcessTimeAndSpeed( speed_config, elapsed_time, speed, speed_integer, speed_fractional );
+			ProcessElapsedTimer( time_config, time_sensor_A, time_sensor_B );
+
+			WriteLCD_LineCentered( Timer_History[ 1 ].time_speed_string, 0 );
+			WriteLCD_LineCentered( Timer_History[ 0 ].time_string, 1 );
+		}
+		else
+		{
+			ProcessElapsedTimer( time_config, time_sensor_A, time_sensor_B );
+			ProcessTimeAndSpeed( speed_config, elapsed_time, speed, speed_integer, speed_fractional );
+
+			WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 0 );
+			WriteLCD_LineCentered( Timer_History[ 1 ].time_string, 1 );
+		}
+
+		UpdateLCD();
+
+		Delay( 4000 );
+	}
+
+	return 0;
+}
+
+int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
+						const char * timing_string, const char * elapsed_string )
+{
+	if( sensor_A == 0 || sensor_B == 0 )
+	{
+		WriteLCD_LineCentered( timing_string, 0 );
+		PrintElapsedTime( Timer_Tick, 1 );
+		UpdateLCD();
+	}
+
+	if( sensor_A == 0 || sensor_B == 0  ) return 1;
+
+	if( Cancel_Timing == 0 )
+	{
+		unsigned int elapsed_time, speed_integer, speed_fractional;
+		float speed;
+
+		CalculateSpeed( sensor_A, sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
+
+		ProcessTimeAndSpeed( aux_config, elapsed_time, speed, speed_integer, speed_fractional );
+
+		WriteLCD_LineCentered( elapsed_string, 0 );
+		WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
+		UpdateLCD();
+
+		Delay( 3000 );
+	}
+
+	return 0;
+}
+
+void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case when the second sensor is a time only
+{
+	unsigned int sensor_1 = 0;
+	unsigned int sensor_2 = 0;
+
+	unsigned int sensor_1A = 0, sensor_1B = 0, sensor_2A = 0, sensor_2B = 0;
+
+	char time_string[ DISPLAY_WIDTH ] = ZEROS;
+
+	// reset all the timers
+	Timer_Tick			= 0;
+	Aux_1_Sensor_A_Tick = 0;
+	Aux_1_Sensor_B_Tick = 0;
+	Aux_2_Sensor_A_Tick = 0;
+	Aux_2_Sensor_B_Tick = 0;
+
+	int inputs = 0;
+
+	float speed = 0;
+
+	do
+	{
+		ReadInputs( & inputs );
+
+		// reassign based on which is actually AUX 1, AUX 2
+		if( aux_config == AUX_1_CONFIG )
+		{
+			sensor_1A = Aux_1_Sensor_A_Tick;	sensor_1B = Aux_1_Sensor_B_Tick;
+			sensor_2A = Aux_2_Sensor_A_Tick;	sensor_2B = Aux_2_Sensor_B_Tick;
+		}
+		else
+		{
+			sensor_1A = Aux_2_Sensor_A_Tick;	sensor_1B = Aux_2_Sensor_B_Tick;
+			sensor_2A = Aux_1_Sensor_A_Tick;	sensor_2B = Aux_1_Sensor_B_Tick;
+		}
+
+		if( sensor_1A == 0 && sensor_1B == 0 && sensor_2A == 0 && sensor_2B == 0 )
+		{
+			WriteLCD_LineCentered( "WAITING FOR SENSOR", 0 );
+
+			if( speed == 0 ) WriteLCD_LineCentered( SPACES, 1 );
+
+			UpdateLCD();
+
+			Timer_Tick = 0;
+
+			continue;
+		}
+
+		if( sensor_1A != 0 || sensor_1B != 0 || sensor_2A != 0 || sensor_2B != 0 )
+		{
+			GetTimeString( Timer_Tick, time_string );
+
+			if( aux_config == AUX_1_CONFIG )
+				WriteLCD_LineCentered( "TIMING AUX 1", 0 );
+			else
+				WriteLCD_LineCentered( "TIMING AUX 2", 0 );
+
+			WriteLCD_LineCentered( time_string, 1 );
+			UpdateLCD();
+
+			// sensor 1 is used to keep track of time
+			if( sensor_1 == 0 && (sensor_1A || sensor_1B) != 0 )	sensor_1 = (sensor_1A | sensor_1B);
+
+			// sensor 2 is used to calculate speed
+			if( sensor_2 == 0 && (sensor_2A || sensor_2B) != 0 )	sensor_2 = (sensor_2A | sensor_2B);
+
+
+			// check to see if a speed should be displayed
+			if( sensor_1A != 0 && sensor_1B != 0 )
+			{
+				const unsigned int sensor_spacing = (aux_config == AUX_1_CONFIG ) ? Aux_1_Sensor_Spacing : Aux_2_Sensor_Spacing;
+
+				unsigned int sensor_delta = 0, speed_integer = 0, speed_fractional = 0;
+
+				// determine speed
+				CalculateSpeed( sensor_1A, sensor_1B, sensor_spacing, & sensor_delta, & speed, & speed_integer, & speed_fractional );
+
+				// determine elapsed time if it was triggered
+				unsigned int elapsed_time = 0;
+
+				if( sensor_2A != 0 || sensor_2B != 0 )
+				{
+					const unsigned int end_time = ( sensor_1A < sensor_1B ) ? sensor_1A : sensor_1B;
+					elapsed_time = end_time - sensor_2;
+				}
+
+				ProcessTimeAndSpeed( aux_config, elapsed_time, speed, speed_integer, speed_fractional );
+
+				if( elapsed_time > 0 )
+				{
+					WriteLCD_LineCentered( "LAST TIME AND SPEED", 0 );
+					WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
+					UpdateLCD();
+
+#ifdef NUMBERS
+					PlaySilence( 100, 1 );
+					PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
+					PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+
+					PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+					InitAudio();
+#endif
+				}
+				else
+				{
+					WriteLCD_LineCentered( "LAST SPEED", 0 );
+					WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
+					UpdateLCD();
+#ifdef NUMBERS
+					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+					InitAudio();
+#endif
+				}
+
+				Delay( 2000 );
+
+				// reset all the timers
+				Timer_Tick			= 0;
+				Aux_1_Sensor_A_Tick = 0;
+				Aux_1_Sensor_B_Tick = 0;
+				Aux_2_Sensor_A_Tick = 0;
+				Aux_2_Sensor_B_Tick = 0;
+
+				continue;
+			}
+		}
+
+	} while( inputs != BUTTON_E );
+}
+
+void CopyTimerHistoryDown( void )
+{
+	int j = 0, k;
+	// only store up to MAX_TIMING_HISTORIES
+
+	for( j = MAX_TIMING_HISTORIES - 1; j >= 0 ; j-- )
+	{ // just scroll entire array down before each add and add new time at position 0 in the Timer_History array
+		Timer_History[ j ].number			= Timer_History[ j - 1 ].number;
+		Timer_History[ j ].elapsed_time		= Timer_History[ j - 1 ].elapsed_time;
+		Timer_History[ j ].speed_integer	= Timer_History[ j - 1 ].speed_integer;
+		Timer_History[ j ].speed_fractional	= Timer_History[ j - 1 ].speed_fractional;
+
+		Timer_History[ j ].is_a_speed		= Timer_History[ j - 1 ].is_a_speed;
+		Timer_History[ j ].aux_port			= Timer_History[ j - 1 ].aux_port;
+
+		for( k = 0; k < DISPLAY_WIDTH; k++ )
+		{
+			Timer_History[ j ].time_string[ k ]		  = Timer_History[ j - 1 ].time_string[ k ];
+			Timer_History[ j ].speed_string[ k ]	  = Timer_History[ j - 1 ].speed_string[ k ];
+			Timer_History[ j ].time_speed_string[ k ] = Timer_History[ j - 1 ].time_speed_string[ k ];
+		}
+	}
+}
+
+void AddTimeToTimerHistory( unsigned int aux_config, unsigned int elapsed_time, char *time_string )
+{
+	CopyTimerHistoryDown();
+
+	// used by TIMER_HISTORY to know how many entries to display
+	Timer_History_Index++;
+	Timer_History_Index = ( Timer_History_Index > MAX_TIMING_HISTORIES ) ? MAX_TIMING_HISTORIES : Timer_History_Index;
+
+	// reset history index at 100000 (like anyone would store that many - EVER)
+	Timer_History_Number++;
+	Timer_History_Number = ( Timer_History_Number > MAX_HISTORY_NUMBER ) ? 1 : Timer_History_Number;
+
+	// save this timer result
+	Timer_History[ 0 ].number			= Timer_History_Number;
+	Timer_History[ 0 ].elapsed_time		= elapsed_time;
+	Timer_History[ 0 ].speed_integer	= 0;
+	Timer_History[ 0 ].speed_fractional	= 0;
+
+	Timer_History[ 0 ].aux_port			= aux_config;
+
+	// copy timer strings to timer history index 0 since entire array has scrolled down
+	const int length = strlen( time_string ) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( time_string );
+	int i;
+	for( i = 0; i < length; i++ ) Timer_History[ 0 ].time_string[ i ] = time_string[ i ];
+
+	// update menu text
+	SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].time_string );
 }
 
 void InitPorts( void )
@@ -3107,6 +3072,57 @@ void WaitForButtonUp()
 	int inputs = 0;
 
 	do { ReadInputs( &inputs ); } while ( inputs != 0 );
+}
+
+float BatteryLevel( const unsigned int display_level )
+{
+	float battery_level = 0;
+	int a = 0;
+	for(; a < 10000; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
+	battery_level /= 10000;
+
+	// save battery level at higher precision
+	const float charge_level = battery_level;
+
+	if( Starting_Charge_Level < 1.0f )
+	{
+		Starting_Charge_Level = charge_level;
+		return 0;
+	}
+
+	Charge_Change += charge_level - Starting_Charge_Level;
+
+	battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
+	Menu_Array[ BATTERY_CONDITION ].context = ( battery_level > 100.0f ) ? 100 : (int)battery_level;
+
+	// 85% battery level is 13vdc
+
+	// recharge at battery_level == 260,000
+	if( charge_level < 260000.0f || display_level == 1 )
+	{
+		// write condition to bottom line and update the display to show new condition
+		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 0 );
+		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 1 );
+
+		if( Menu_Array[ BATTERY_CONDITION ].context < 0  )
+		{
+			if( Charge_Change > 2500 )
+			{
+				WriteLCD_LineCentered( "* CHARGING *", 0 );
+				WriteLCD_LineCentered( "* CHARGING *", 1 );
+			}
+		}
+		else
+		{
+			WriteLCD_LineCentered( "BATTERY CHARGE LEVEL", 0 );
+			sprintf( Menu_Array[ BATTERY_CONDITION ].item[0], "%d%%", Menu_Array[ BATTERY_CONDITION ].context );
+			WriteLCD_LineCentered( Menu_Array[ BATTERY_CONDITION ].item[0], 1 );
+		}
+
+		UpdateLCD();
+	}
+
+	return charge_level;
 }
 
 int ReadBatteryCondition( void )
