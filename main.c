@@ -17,9 +17,9 @@
 
 #include "codec.h"
 
-#define STARTUP_SOUND
-#define CADENCE
-#define NUMBERS
+//#define STARTUP_SOUND
+//#define CADENCE
+//#define NUMBERS
 
 #ifdef STARTUP_SOUND
 #include "StartupSound.c"
@@ -220,6 +220,7 @@ struct MENU_DEFINITION
 //                        1
 //              01234567890123456789
 #define SPACES "                    "
+#define ZEROS { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }
 
 enum DEVICE_STATE { STARTUP, RECHARGE, WAIT_FOR_USER, WAIT_FOR_SENSORS, WAIT_FOR_SPEED_TRAP };
 
@@ -308,13 +309,14 @@ float BatteryLevel( const unsigned int display_level )
 	{
 		// write condition to bottom line and update the display to show new condition
 		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 0 );
-		WriteLCD_LineCentered( SPACES, 1 );
+		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 1 );
 
 		if( Menu_Array[ BATTERY_CONDITION ].context < 0  )
 		{
 			if( charge_change > 2500 )
 			{
 				WriteLCD_LineCentered( "* CHARGING *", 0 );
+				WriteLCD_LineCentered( "* CHARGING *", 1 );
 			}
 		}
 		else
@@ -361,28 +363,33 @@ void GetTimeString( const unsigned int sensor_ticks, char *time_string )
 	else
 		GetTimeFromTicks( sensor_ticks, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 
+	char temp_string[ 2 * DISPLAY_WIDTH ];
+
 	if( minutes > 0 )
-		sprintf( time_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
+		sprintf( temp_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
 	else
-		sprintf( time_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
+		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
+
+	const int length = strlen(temp_string) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( temp_string );
+	int i;
+	for( i = 0; i < length; i++ ) time_string[ i ] = temp_string[ i ];
 }
 
 void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_time_string, char *sensor_2_time_string )
 {
 	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
 
-	char temp_string[ DISPLAY_WIDTH ] = SPACES;
 	int i, j;
 
 	if( sensor_1 == 0 )
-		{ sprintf( sensor_1_time_string, "AUX 1:" ); sensor_1_time_string[ 6 ] = 0x20; }
+		{ sprintf( sensor_1_time_string, "AUX 1:" ); 		sensor_1_time_string[ 6 ] = 0x20; }
 	else
-		{ sprintf( sensor_1_time_string, "AUX 1 TIME:" ); sensor_1_time_string[ 11 ] = 0x20; }
+		{ sprintf( sensor_1_time_string, "AUX 1 TIME:" );	sensor_1_time_string[ 11 ] = 0x20; }
 
 	if( sensor_2 == 0 )
-		{ sprintf( sensor_2_time_string, "AUX 2:" ); sensor_2_time_string[ 6 ] = 0x20; }
+		{ sprintf( sensor_2_time_string, "AUX 2:" ); 		sensor_2_time_string[ 6 ] = 0x20; }
 	else
-		{ sprintf( sensor_2_time_string, "AUX 2 TIME:" ); sensor_2_time_string[ 11 ] = 0x20; }
+		{ sprintf( sensor_2_time_string, "AUX 2 TIME:" ); 	sensor_2_time_string[ 11 ] = 0x20; }
 
 
 	// construct sensor 1 time string
@@ -391,12 +398,15 @@ void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, c
 	else
 		GetTimeFromTicks( sensor_1, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 
+	char temp_string[ 2 * DISPLAY_WIDTH ];
+
 	if( minutes > 0 )
 		sprintf( temp_string, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
 	else
 		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
 
-	for( i = 0, j = DISPLAY_WIDTH - strlen( temp_string ); j < DISPLAY_WIDTH; j++, i++ ) sensor_1_time_string[ j ] = temp_string[ i ];
+	int adjust = strlen( temp_string ) > DISPLAY_WIDTH ? 0 : strlen( temp_string );
+	for( i = 0, j = DISPLAY_WIDTH - adjust; j < DISPLAY_WIDTH; j++, i++ ) sensor_1_time_string[ j ] = temp_string[ i ];
 
 
 	// construct sensor 2 time string
@@ -410,7 +420,8 @@ void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, c
 	else
 		sprintf( temp_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
 
-	for( i = 0, j = DISPLAY_WIDTH - strlen( temp_string ); j < DISPLAY_WIDTH; j++, i++ ) sensor_2_time_string[ j ] = temp_string[ i ];
+	adjust = strlen( temp_string ) > DISPLAY_WIDTH ? 0 : strlen( temp_string );
+	for( i = 0, j = DISPLAY_WIDTH - adjust; j < DISPLAY_WIDTH; j++, i++ ) sensor_2_time_string[ j ] = temp_string[ i ];
 }
 
 void CopyTimerHistoryDown( void )
@@ -458,8 +469,9 @@ void AddTimeToTimerHistory( unsigned int aux_config, unsigned int elapsed_time, 
 	Timer_History[ 0 ].aux_port			= aux_config;
 
 	// copy timer strings to timer history index 0 since entire array has scrolled down
+	const int length = strlen( time_string ) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( time_string );
 	int i;
-	for( i = 0; i < strlen( time_string ); i++ ) Timer_History[ 0 ].time_string[ i ] = time_string[ i ];
+	for( i = 0; i < length; i++ ) Timer_History[ 0 ].time_string[ i ] = time_string[ i ];
 
 	// update menu text
 	SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].time_string );
@@ -467,7 +479,7 @@ void AddTimeToTimerHistory( unsigned int aux_config, unsigned int elapsed_time, 
 
 void ProcessElapsedTimer( unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B )
 {
-	char elapsed_time_string[DISPLAY_WIDTH] = SPACES;
+	char elapsed_time_string[ DISPLAY_WIDTH ] = ZEROS;
 
 	unsigned int elapsed_time = 0;
 
@@ -489,6 +501,8 @@ void ProcessElapsedTimer( unsigned int aux_config, unsigned int sensor_A, unsign
 void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
 					 unsigned int * elapsed_time, float * speed , unsigned int * speed_integer, unsigned int * speed_fractional )
 {
+	// (1.34112mm/1us)(10,000us/is)(1in/25.4mm)(1ft/12in) = 44ft/s = 30mi/hr
+	// mph(Dmm,Tus)=10,000*Dmm/304.8Tus
 	*elapsed_time = (sensor_A < sensor_B) ? sensor_B : sensor_A;
 	const unsigned int sensor_delta	= (sensor_A < sensor_B) ? sensor_B - sensor_A : sensor_A - sensor_B;
 
@@ -518,8 +532,9 @@ void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elap
 
 	Timer_History[ 0 ].aux_port			= aux_config;
 
-	char time_string [DISPLAY_WIDTH]	= SPACES;
-	char speed_string[DISPLAY_WIDTH]	= SPACES;
+	// pad temp strings out to handle memory overruns before copy occurs
+	char time_string [ 2 * DISPLAY_WIDTH ];
+	char speed_string[ 2 * DISPLAY_WIDTH ];
 
 	sprintf( speed_string, "%d.%03d mph", speed_integer, speed_fractional );
 
@@ -533,33 +548,44 @@ void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elap
 		sprintf( time_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
 
 	int i;
-	for( i = 0; i < DISPLAY_WIDTH; i++ ) Timer_History[ 0 ].time_string[ i ]  = time_string[ i ];
-	for( i = 0; i < DISPLAY_WIDTH; i++ ) Timer_History[ 0 ].speed_string[ i ] = speed_string[ i ];
+	for( i = 0; i < DISPLAY_WIDTH; i++ )
+	{
+		Timer_History[ 0 ].time_string[ i ]  = time_string[ i ];
+		Timer_History[ 0 ].speed_string[ i ] = speed_string[ i ];
+	}
 
 	// construct time and speed strings
+	char time_speed_string[ 2 * DISPLAY_WIDTH ];
+
 	if( minutes < 1 )
 	{
-		sprintf( Timer_History[ 0 ].time_speed_string, "%d.%d%d%d @ %s", seconds, tens_place, hund_place, thou_place, speed_string );
+		sprintf( time_speed_string, "%d.%d%d%d @ %s", seconds, tens_place, hund_place, thou_place, speed_string );
 	}
 	else if( (minutes >  0 && minutes <  9 && seconds < 10 && speed > 9 ) ||
 			 (minutes < 10 && seconds < 10 && speed > 9) ||
 			 (minutes < 10 && seconds >  9 && speed < 10)||
 			 (minutes >  9 && seconds < 10 && speed < 10) )
 	{
-		sprintf( Timer_History[ 0 ].time_speed_string, "%d:%d.%d%d%d @ %s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
+		sprintf( time_speed_string, "%d:%d.%d%d%d @ %s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
 	}
 	else if( (minutes < 10 && seconds > 9 && speed > 9) ||
 			 (minutes >  9 && seconds > 9 && speed < 9) ||
 			 (minutes >  0 && minutes < 9 && seconds > 9 && speed > 10) )
 	{
-		sprintf( Timer_History[ 0 ].time_speed_string, "%d:%d.%d%d%d @%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
+		sprintf( time_speed_string, "%d:%d.%d%d%d @%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
 	}
 	else {
-		sprintf( Timer_History[ 0 ].time_speed_string, "%d:%d.%d%d%d@%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
+		sprintf( time_speed_string, "%d:%d.%d%d%d@%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
 	}
 
+	const int length = strlen( time_speed_string ) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( time_speed_string );
+	for( i = 0; i < length; i++ ) Timer_History[ 0 ].time_speed_string[ i ] = time_speed_string[ i ];
+
 	// update menu text
-	SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].time_speed_string );
+	if( Timer_History[ 0 ].elapsed_time == 0 )
+		SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].speed_string );
+	else
+		SetMenuText( Menu_Array[TIMER_HISTORY].item[0], Timer_History[ 0 ].time_speed_string );
 }
 
 int DoTimeAndDisabled( const unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B, const char * timing_string, const char * elapsed_string )
@@ -699,14 +725,14 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 	return 0;
 }
 
-void DoSprintTimer( unsigned int aux_config )
+void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case when the second sensor is a time only
 {
 	unsigned int sensor_1 = 0;
 	unsigned int sensor_2 = 0;
 
 	unsigned int sensor_1A = 0, sensor_1B = 0, sensor_2A = 0, sensor_2B = 0;
 
-	char time_string[ DISPLAY_WIDTH ] = SPACES;
+	char time_string[ DISPLAY_WIDTH ] = ZEROS;
 
 	// reset all the timers
 	Timer_Tick			= 0;
@@ -738,8 +764,8 @@ void DoSprintTimer( unsigned int aux_config )
 		if( sensor_1A == 0 && sensor_1B == 0 && sensor_2A == 0 && sensor_2B == 0 )
 		{
 			WriteLCD_LineCentered( "WAITING FOR SENSOR", 0 );
-			if( speed == 0 )
-				WriteLCD_LineCentered( SPACES, 1 );
+
+			if( speed == 0 ) WriteLCD_LineCentered( SPACES, 1 );
 
 			UpdateLCD();
 
@@ -794,6 +820,7 @@ void DoSprintTimer( unsigned int aux_config )
 					WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
 					UpdateLCD();
 
+#ifdef NUMBERS
 					PlaySilence( 100, 1 );
 					PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
 					PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
@@ -801,15 +828,17 @@ void DoSprintTimer( unsigned int aux_config )
 					PlaySample24khz( AtData, 0, AT_SIZE, 1 );
 					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
 					InitAudio();
+#endif
 				}
 				else
 				{
 					WriteLCD_LineCentered( "LAST SPEED", 0 );
 					WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
 					UpdateLCD();
-
+#ifdef NUMBERS
 					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
 					InitAudio();
+#endif
 				}
 
 				Delay( 2000 );
@@ -1485,7 +1514,16 @@ int main( void )
 								}
 								else if( Menu_Array[menu_index].context == AUX_SPRINT_TIMER )
 								{
-									Device_State = WAIT_FOR_SENSORS;
+									DoSprintTimer( menu_index );
+
+									WaitForButtonUp();
+
+									ItemCopy( menu_index, Menu_Array[menu_index].context, 0, 1 );
+
+									WriteLCD_LineCentered( Menu_Array[menu_index].caption, 0 );
+									WriteLCD_LineCentered( Menu_Array[menu_index].item[0], 1 );
+									UpdateLCD();
+
 									break;
 								}
 
@@ -1515,8 +1553,8 @@ int main( void )
 
 								unsigned int i, j;
 
-								char number[ 6 ] = "      ";
-								char time[ 10 ]	 = "          ";
+								char number[ DISPLAY_WIDTH ] = SPACES;
+								char time[ DISPLAY_WIDTH ]	 = SPACES;
 
 								const int top_index		= Menu_Array[TIMER_HISTORY].context;
 								const int bottom_index	= Menu_Array[TIMER_HISTORY].context + 1;
@@ -1535,7 +1573,7 @@ int main( void )
 									// write time to top line right justified
 									sprintf( time, "%s", Timer_History[ top_index ].time_string );
 									for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_0[ j ] = time[ i ];
-									line_0[ DISPLAY_WIDTH - 2 ] = 0x20;
+									line_0[ DISPLAY_WIDTH - 2 ] = 0x20; line_0[ DISPLAY_WIDTH - 1 ] = 0x20;
 
 									// write time # to bottom line left justified
 									if( Timer_History[ bottom_index ].aux_port == AUX_1_CONFIG )
@@ -1547,7 +1585,7 @@ int main( void )
 									// write time to bottom line right justified
 									sprintf( time, "%s", Timer_History[ bottom_index ].time_string );
 									for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_1[ j ] = time[ i ];
-									line_1[ DISPLAY_WIDTH - 2 ] = 0x20;
+									line_1[ DISPLAY_WIDTH - 2 ] = 0x20; line_1[ DISPLAY_WIDTH - 1 ] = 0x20;
 								}
 								// TIME on top, TIME on bottom
 								else if( !Timer_History[ top_index ].is_a_speed && !Timer_History[ bottom_index ].is_a_speed )
@@ -1555,7 +1593,7 @@ int main( void )
 									// write time to top line right justified
 									sprintf( time, "%s", Timer_History[ top_index ].time_string );
 									for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_0[ j ] = time[ i ];
-									line_0[ DISPLAY_WIDTH - 2 ] = 0x20;
+									line_0[ DISPLAY_WIDTH - 2 ] = 0x20; line_0[ DISPLAY_WIDTH - 1 ] = 0x20;
 
 									// if there is a time in the next element of the history array then write it since we have room
 									if( Timer_History[ bottom_index ].number != 0 )
@@ -1570,7 +1608,7 @@ int main( void )
 										// write time to bottom line right justified
 										sprintf( time, "%s", Timer_History[ bottom_index ].time_string );
 										for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_1[ j ] = time[ i ];
-										line_1[ DISPLAY_WIDTH - 2 ] = 0x20;
+										line_1[ DISPLAY_WIDTH - 2 ] = 0x20; line_1[ DISPLAY_WIDTH - 1 ] = 0x20;
 									}
 									else
 									{	// clear out the bottom line of the display since there is no value to be displayed
@@ -1591,7 +1629,7 @@ int main( void )
 										// write time to top line right justified
 										sprintf( time, "%s", Timer_History[ top_index ].time_string );
 										for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_0[ j ] = time[ i ];
-										line_0[ DISPLAY_WIDTH - 2 ] = 0x20;
+										line_0[ DISPLAY_WIDTH - 2 ] = 0x20; line_0[ DISPLAY_WIDTH - 1 ] = 0x20;
 
 										sprintf( line_1, "Time:" );
 										line_1[ 5 ] = 0x20;	// get rid of null termination that sprintf put on the end
@@ -1600,19 +1638,21 @@ int main( void )
 									// write the speed right justified
 									j = DISPLAY_WIDTH - 2 - strlen( Timer_History[ top_index ].speed_string );
 									sprintf( &line_1[ j ], "%s", Timer_History[ top_index ].speed_string );
-									line_1[ DISPLAY_WIDTH - 2 ] = 0x20;
+									line_1[ DISPLAY_WIDTH - 2 ] = 0x20; line_1[ DISPLAY_WIDTH - 1 ] = 0x20;
 								}
 								// TIME on top, 0 on bottom
 								else
 								{
 									// write time right justified
 									sprintf( time, "%s", Timer_History[ top_index ].time_string );
+									for( i = 0; i < DISPLAY_WIDTH; i++ ) line_0[ i ] = 0x20;
 									for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_0[ j ] = time[ i ];
-									line_0[ DISPLAY_WIDTH - 2 ] = 0x20;
+									line_0[ DISPLAY_WIDTH - 2 ] = 0x20; line_0[ DISPLAY_WIDTH - 1 ] = 0x20;
 
 									// nothing to right on bottom line so clear it out
 									for( i = 0; i < DISPLAY_WIDTH; i++ ) line_1[ i ] = 0x20;
 								}
+
 
 								// determine what custom characters for up/down arrows should be to the left of the histories and write them
 								if( Timer_History_Index != 1 )
@@ -1792,7 +1832,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[WIRELESS_REMOTE].item[ Menu_Array[WIRELESS_REMOTE].context ], 1 );
 								UpdateLCD();
 
-								// wait for sensor to trip
+								// read controls
 								do
 								{	encoder_delta = ReadInputs( &inputs );
 
@@ -1912,17 +1952,7 @@ int main( void )
 					unsigned int sensor_2A = CheckSensor( AUX_2_SENSOR_A );
 					unsigned int sensor_2B = CheckSensor( AUX_2_SENSOR_B );
 
-					if( Menu_Array[AUX_1_CONFIG].context == AUX_SPRINT_TIMER )
-					{
-						DoSprintTimer( AUX_1_CONFIG );
-						break;
-					}
-					else if( Menu_Array[AUX_2_CONFIG].context == AUX_SPRINT_TIMER )
-					{
-						DoSprintTimer( AUX_2_CONFIG );
-						break;
-					}
-					else if( Menu_Array[AUX_1_CONFIG].context == AUX_DISABLED )
+					if( Menu_Array[AUX_1_CONFIG].context == AUX_DISABLED )
 					{
 						if( Menu_Array[AUX_2_CONFIG].context == AUX_TIME )
 						{
@@ -1965,18 +1995,21 @@ int main( void )
 							UpdateLCD();
 
 							if( sensor_1 == 0 || sensor_2 == 0 ) continue;
-
+#ifdef NUMBERS
 							const int time_start = 8400;
 							const int time_size  = 7500;
+#endif
+							char top_line[ DISPLAY_WIDTH ] 		= ZEROS;
+							char bottom_line[ DISPLAY_WIDTH ]	= ZEROS;
 
 							if( sensor_1 > sensor_2 )
 							{
-								GetTimeString( sensor_2, line_1 );
-								AddTimeToTimerHistory( AUX_2_CONFIG, sensor_2, line_1 );
+								GetTimeString( sensor_2, bottom_line );
+								AddTimeToTimerHistory( AUX_2_CONFIG, sensor_2, bottom_line );
 
-								GetTimeString( sensor_1, line_0 );
-								AddTimeToTimerHistory( AUX_1_CONFIG, sensor_1, line_0 );
-
+								GetTimeString( sensor_1, top_line );
+								AddTimeToTimerHistory( AUX_1_CONFIG, sensor_1, top_line );
+#ifdef NUMBERS
 								PlaySilence( 100, 1 );
 								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
 								PlayDigit( 1 );
@@ -1986,15 +2019,16 @@ int main( void )
 								PlayDigit( 2 );
 								PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
 								InitAudio();
+#endif
 							}
 							else
 							{
-								GetTimeString( sensor_1, line_1 );
-								AddTimeToTimerHistory( AUX_1_CONFIG, sensor_1, line_1 );
+								GetTimeString( sensor_1, bottom_line );
+								AddTimeToTimerHistory( AUX_1_CONFIG, sensor_1, bottom_line );
 
-								GetTimeString( sensor_2, line_0 );
-								AddTimeToTimerHistory( AUX_2_CONFIG, sensor_2, line_0 );
-
+								GetTimeString( sensor_2, top_line );
+								AddTimeToTimerHistory( AUX_2_CONFIG, sensor_2, top_line );
+#ifdef NUMBERS
 								PlaySilence( 100, 1 );
 								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
 								PlayDigit( 1 );
@@ -2004,6 +2038,7 @@ int main( void )
 								PlayDigit( 2 );
 								PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
 								InitAudio();
+#endif
 							}
 
 							Delay( 2000 );
@@ -2103,6 +2138,7 @@ void DropGate( void )
 
 	Cadence_Cancelled = 0;
 
+#ifdef CADENCE
 	// fade music volume out TODO: make this a logarithmic!
 	int volume = (128 * Menu_Array[AUDIO_IN_VOLUME].context) / 100;
 	int step = volume / 20;
@@ -2122,6 +2158,7 @@ void DropGate( void )
 
 	    UpdateLCD();
 	}
+#endif
 
 	WriteLCD_LineCentered( "PLAYING CADENCE", 0 );
 	WriteLCD_LineCentered( SPACES, 1 );
@@ -2240,6 +2277,7 @@ void DropGate( void )
 	// Get rid of the static that occurs intermittently
 	InitAudio();
 
+#ifdef CADENCE
 	// TODO: only restore audio in volume if audio source is connected, write "FADING MUSIC BACK IN" ?
 	int max_volume = (128 * Menu_Array[AUDIO_IN_VOLUME].context) / 100;
 
@@ -2248,6 +2286,7 @@ void DropGate( void )
 		SetAttenuator( 0x0000 | volume );
 		Delay( 60 );
 	}
+#endif
 }
 
 void InitPorts( void )
@@ -2968,7 +3007,7 @@ void PrintElapsedTime( unsigned int milliseconds, unsigned int display_line )
 
     GetTimeFromTicks( milliseconds, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 
-    char line[DISPLAY_WIDTH] = SPACES;
+    char line[ DISPLAY_WIDTH ] = SPACES;
 
     if( minutes > 0 )
     	sprintf( line, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
