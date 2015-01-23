@@ -15,11 +15,13 @@
 #include "stm32f4xx_rng.h"
 #include "core_cm4.h"
 
+#include "stm32f4xx_flash.h"
+
 #include "codec.h"
 
-#define STARTUP_SOUND
-#define CADENCE
-#define NUMBERS
+//#define STARTUP_SOUND
+//#define CADENCE
+//#define NUMBERS
 
 #ifdef STARTUP_SOUND
 #include "StartupSound.c"
@@ -299,8 +301,6 @@ static float Charge_Change 		   = 0.0f;
 
 
 
-
-
 // w00t!
 int main( void )
 {
@@ -322,8 +322,6 @@ int main( void )
 	Charge_Change = 0;
 
 	InitAudio();
-
-
 
 	// enable gates
 	GPIO_ResetBits( GPIOA, GPIO_Pin_3 );	// gate drive enable
@@ -1644,7 +1642,7 @@ void DropGate( void )
 	else
 	{
 #ifdef CADENCE
-	PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );
+		PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );
 #endif
 	}
 
@@ -2089,6 +2087,8 @@ void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case w
 
 	float speed = 0;
 
+	unsigned int timeout = 0; // if speed sensor is not hit within 1.5 seconds then just save time
+
 	do
 	{
 		ReadInputs( & inputs );
@@ -2113,31 +2113,70 @@ void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case w
 
 			UpdateLCD();
 
-			Timer_Tick = 0;
+			// reset
+			Timer_Tick			= 0;
+			timeout				= 0;
+			sensor_1			= 0;
+			sensor_2			= 0;
 
 			continue;
 		}
 
 		if( sensor_1A != 0 || sensor_1B != 0 || sensor_2A != 0 || sensor_2B != 0 )
 		{
-			GetTimeString( Timer_Tick, time_string );
-
 			if( aux_config == AUX_1_CONFIG )
 				WriteLCD_LineCentered( "TIMING AUX 1", 0 );
 			else
 				WriteLCD_LineCentered( "TIMING AUX 2", 0 );
 
+			GetTimeString( Timer_Tick, time_string );
+
 			WriteLCD_LineCentered( time_string, 1 );
 			UpdateLCD();
 
-			// sensor 1 is used to keep track of time
+			// sensor 1 is used to calculate speed
 			if( sensor_1 == 0 && (sensor_1A || sensor_1B) != 0 )	sensor_1 = (sensor_1A | sensor_1B);
 
-			// sensor 2 is used to calculate speed
+			// sensor 2 is used to start timing
 			if( sensor_2 == 0 && (sensor_2A || sensor_2B) != 0 )	sensor_2 = (sensor_2A | sensor_2B);
 
+			// set timeout value once an aux 1 sensor is hit
+			if( (timeout == 0 ) && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
+			{
+				timeout = Timer_Tick + 15000;
+			}
 
-			// check to see if a speed should be displayed
+			if( Timer_Tick > timeout && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
+			{
+				if( sensor_2 != 0 )
+				{
+					ProcessElapsedTimer( aux_config, sensor_1, sensor_2 );
+
+					WriteLCD_LineCentered( "ELAPSED TIME", 0 );
+					WriteLCD_LineCentered( Timer_History[ 0 ].time_string, 1 );
+					UpdateLCD();
+				}
+				else
+				{
+					if( aux_config == AUX_1_CONFIG )
+						WriteLCD_LineCentered( "AUX 1 sensor faulty", 1 );
+					else
+						WriteLCD_LineCentered( "AUX 2 sensor faulty", 1 );
+					UpdateLCD();
+				}
+
+				Delay( 1250 );
+
+				// reset
+				Aux_1_Sensor_A_Tick = 0;
+				Aux_1_Sensor_B_Tick = 0;
+				Aux_2_Sensor_A_Tick = 0;
+				Aux_2_Sensor_B_Tick = 0;
+
+				continue;
+			}
+
+			// calculate speed or speed and time if speed sensor has both ports hit
 			if( sensor_1A != 0 && sensor_1B != 0 )
 			{
 				const unsigned int sensor_spacing = (aux_config == AUX_1_CONFIG ) ? Aux_1_Sensor_Spacing : Aux_2_Sensor_Spacing;
@@ -2164,7 +2203,7 @@ void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case w
 					WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
 					UpdateLCD();
 
-#ifdef NUMBERS
+	#ifdef NUMBERS
 					PlaySilence( 100, 1 );
 					PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
 					PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
@@ -2172,23 +2211,23 @@ void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case w
 					PlaySample24khz( AtData, 0, AT_SIZE, 1 );
 					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
 					InitAudio();
-#endif
+	#endif
 				}
 				else
 				{
 					WriteLCD_LineCentered( "LAST SPEED", 0 );
 					WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
 					UpdateLCD();
-#ifdef NUMBERS
+
+	#ifdef NUMBERS
 					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
 					InitAudio();
-#endif
+	#endif
 				}
 
 				Delay( 2000 );
 
-				// reset all the timers
-				Timer_Tick			= 0;
+				// reset
 				Aux_1_Sensor_A_Tick = 0;
 				Aux_1_Sensor_B_Tick = 0;
 				Aux_2_Sensor_A_Tick = 0;
