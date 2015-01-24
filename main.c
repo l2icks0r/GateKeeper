@@ -460,7 +460,7 @@ int main( void )
 							else					menu_index = DROP_GATE;
 						}
 
-						// skip CLEAR_TIMER_HISTORY if history is empty
+						// skip CLEAR_TIMER_HISTORY if timer history is empty
 						if( menu_index == CLEAR_TIMER_HISTORY && Timer_History_Index == 0 )
 						{
 							if( encoder_delta > 0 ) menu_index = TOTAL_GATE_DROPS;
@@ -1230,13 +1230,8 @@ int main( void )
 
 											Delay( 2000 );
 											menu_index = TIMER_HISTORY;
-
-											break;
 										}
-										else
-										{
-											break;
-										}
+										break;
 									}
 									continue;
 								}
@@ -3837,6 +3832,8 @@ void ClearTimingHistories( void )
 {
 	Timer_History_Index  = 0;
 	Timer_History_Number = 0;
+
+	Menu_Array[TIMER_HISTORY].context = 0;
 
 	int j, k;
 	for( j = 0; j < MAX_TIMING_HISTORIES; j++ )
