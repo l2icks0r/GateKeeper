@@ -19,9 +19,9 @@
 
 #include "codec.h"
 
-//#define STARTUP_SOUND
-//#define CADENCE
-//#define NUMBERS
+#define STARTUP_SOUND
+#define CADENCE
+#define NUMBERS
 
 #ifdef STARTUP_SOUND
 #include "StartupSound.c"
@@ -96,10 +96,10 @@ void InitAudio 				( void );
 void InitLCD		 		( void );
 void DefineCustomCharacters	( void );
 
-void WriteLCD_Command		( int data );
-void WriteLCD_Data	 		( int data );
-void WriteLCD_Line	 		( const char * pString, int line_no );
-void WriteLCD_LineCentered	( const char * pString, int line_no );
+void WriteLCD_Command		( const int data );
+void WriteLCD_Data	 		( const int data );
+void WriteLCD_Line	 		( const char * pString, const unsigned int line_no );
+void WriteLCD_LineCentered	( const char * pString, const unsigned int line_no );
 void UpdateLCD		 		( void );
 
 
@@ -107,8 +107,8 @@ void UpdateLCD		 		( void );
 static int Timer_Tick = 0;
 
 void StartTimer6( void );
-void ShortDelay ( unsigned int ticks );
-void Delay		( unsigned int milliseconds );
+void ShortDelay ( const unsigned int ticks );
+void Delay		( const unsigned int milliseconds );
 
 // random number generator (RNG)
 static unsigned int GetRandomNumber( void );
@@ -119,25 +119,25 @@ float BatteryLevel		  ( const unsigned int display_level );
 
 // UI
 void InitMenus( void );
-void ItemCopy( int menu, int source_index, int dest_index, int no_indicators );
+void ItemCopy( const unsigned int menu, const unsigned int source_index, const unsigned int dest_index, const unsigned int no_indicators );
 void SetMenuText( char * menu, const char * text );
 int ReadInputs( int * inputs );
 void WaitForButtonUp();
 
 // audio
 void SetAttenuator( u16 data );
-void PlaySilence  ( unsigned int milliseconds, unsigned int dont_abort );
-void PlayTone	  ( unsigned int milliseconds, const int16_t * data, unsigned int length, unsigned int dont_abort );
+void PlaySilence  ( const unsigned int milliseconds, const unsigned int dont_abort );
+void PlayTone	  ( const unsigned int milliseconds, const int16_t * data, const unsigned int length, const unsigned int dont_abort );
 
-void PlaySample16khz( const int16_t * data, unsigned int start, unsigned int stop, unsigned int dont_abort );
-void PlaySample24khz( const int16_t * data, unsigned int start, unsigned int stop, unsigned int dont_abort );
+void PlaySample16khz( const int16_t * data, const unsigned int start, const unsigned int stop, const unsigned int dont_abort );
+void PlaySample24khz( const int16_t * data, const unsigned int start, const unsigned int stop, const unsigned int dont_abort );
 
 // play speech for number sequence
 enum PLAY_TYPE { PLAY_TIME, PLAY_PERCENT };
 
-void PlayTimeOrPercent( unsigned int milliseconds, int play_type );
-void PlaySpeed( int integer, int fractional );
-void PlayDigit( int number );
+void PlayTimeOrPercent( const unsigned int milliseconds, const unsigned int play_type );
+void PlaySpeed( unsigned int integer, const unsigned int fractional );
+void PlayDigit( const unsigned int number );
 
 // play cadence, drive lights, power magnet/solenoid/air ram
 void DropGate( void );
@@ -146,14 +146,14 @@ void PlayDropGateAnimation( void ); // TODO: implement this
 void PlayGateUpTones( void );
 
 // causes the solenoid to be shut off after specified time in milliseconds
-void PulseSolenoid( unsigned int pulse_time );
+void PulseSolenoid( const unsigned int pulse_time );
 // turns magnet off after delay set in GATE_DROPS_ON
 void TurnMagnetOff( void );
 
 // timing
 unsigned int CheckSensor( const unsigned int sensor );
 
-void GetTimeFromTicks( unsigned int ticks, unsigned int *minutes, unsigned int *seconds, unsigned int *tens_place, unsigned int *hund_place, unsigned int *thou_place );
+void GetTimeFromTicks( const unsigned int ticks, unsigned int *minutes, unsigned int *seconds, unsigned int *tens_place, unsigned int *hund_place, unsigned int *thou_place );
 void GetTimeString	 ( const unsigned int sensor_ticks, char *time_string );
 void GetTimesString	 ( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_string, char *sensor_2_string );
 
@@ -168,17 +168,16 @@ int DoTimeAndSpeed	  ( const unsigned int aux1_option,
 						const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B, unsigned int * timeout );
 int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
 						const char * timing_string, const char * elapsed_string, unsigned int * timeout );
-void DoSprintTimer	  ( unsigned int aux_config );
+void DoSprintTimer	  ( const unsigned int aux_config );
 
 void CopyTimerHistoryDown ( void );
-void AddTimeToTimerHistory( unsigned int aux_config, unsigned int elapsed_time, char *time_string );
+void AddTimeToTimerHistory( const unsigned int aux_config, const unsigned int elapsed_time, const char *time_string );
 
-void PrintElapsedTime( unsigned int milliseconds, unsigned int display_line ); // Elapsed time: 999:59.999
+void PrintElapsedTime( const unsigned int milliseconds, const unsigned int display_line ); // Elapsed time: 999:59.999
 
 void ClearTimingHistories( void );
 
 
-//
 enum INPUTS { 	BUTTON_A 		= 0x0001,
 				BUTTON_B 		= 0x0010,
 				BUTTON_C 		= 0x0020,
@@ -1859,7 +1858,7 @@ unsigned int CheckSensor( const unsigned int sensor )
 	return 0;
 }
 
-void GetTimeFromTicks( unsigned int ticks, unsigned int *minutes, unsigned int *seconds, unsigned int *tens_place, unsigned int *hund_place, unsigned int *thou_place )
+void GetTimeFromTicks( const unsigned int ticks, unsigned int *minutes, unsigned int *seconds, unsigned int *tens_place, unsigned int *hund_place, unsigned int *thou_place )
 {
 	*minutes     = (ticks / 600000);
 	*seconds     = (ticks / 10000 ) % 60;
@@ -2229,7 +2228,7 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 	return 0;
 }
 
-void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case when the second sensor is a time only
+void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the case when the second sensor is a time only
 {
 	unsigned int sensor_1 = 0;
 	unsigned int sensor_2 = 0;
@@ -2426,7 +2425,7 @@ void CopyTimerHistoryDown( void )
 	}
 }
 
-void AddTimeToTimerHistory( unsigned int aux_config, unsigned int elapsed_time, char *time_string )
+void AddTimeToTimerHistory( const unsigned int aux_config, const unsigned int elapsed_time, const char *time_string )
 {
 	CopyTimerHistoryDown();
 
@@ -2772,7 +2771,7 @@ void PlayDropGateAnimation( void )	// TODO: Figure out why subsequent writes to 
 	UpdateLCD();
 }
 
-void WriteLCD_Command( int data )
+void WriteLCD_Command( const int data )
 {
 	GPIO_ResetBits	( GPIOB, GPIO_Pin_11 ); // E clock low
 	GPIO_ResetBits	( GPIOB, GPIO_Pin_13 ); // RS low (command)
@@ -2807,7 +2806,7 @@ void WriteLCD_Data( int data )
 	GPIO_ResetBits( GPIOB, GPIO_Pin_3 ); // E clock low
 }
 
-void WriteLCD_Line( const char * pString, int line_number )
+void WriteLCD_Line( const char * pString, const unsigned int line_number )
 {
 	int i, j;
 
@@ -2815,7 +2814,7 @@ void WriteLCD_Line( const char * pString, int line_number )
 		display_memory[ line_number ][ i ] = pString[ j ];
 }
 
-void WriteLCD_LineCentered( const char * pString, int line_number )
+void WriteLCD_LineCentered( const char * pString, const unsigned int line_number )
 {
 	int i = 0;
 
@@ -2896,7 +2895,7 @@ void StartTimer6( void )
     Timer_Tick = 0;
 }
 
-void PulseSolenoid( unsigned int pulse_time )
+void PulseSolenoid( const unsigned int pulse_time )
 {
 	Gate_Drop_Delay	= Menu_Array[ GATE_DROPS_ON ].context * 10;
 
@@ -3006,14 +3005,14 @@ void EXTI1_IRQHandler()
 	}
 }
 
-void ShortDelay( unsigned int ticks )
+void ShortDelay( const unsigned int ticks )
 {
 	const unsigned int end_time = Timer_Tick + ticks;
 
 	while( Timer_Tick < end_time );
 }
 
-void Delay( unsigned int milliseconds )
+void Delay( const unsigned int milliseconds )
 {
 	ShortDelay( milliseconds * 10 );
 }
@@ -3053,7 +3052,7 @@ void SetAttenuator( u16 data )
 	GPIO_SetBits( GPIOC, GPIO_Pin_4 );
 }
 
-void PlaySilence( unsigned int milliseconds, unsigned int dont_abort )
+void PlaySilence( const unsigned int milliseconds, const unsigned int dont_abort )
 {
 	unsigned int i = (( 48000 * milliseconds ) / 1000);	// 48,000 samples/sec * length / 1000
 	int16_t sample = 0;
@@ -3069,7 +3068,7 @@ void PlaySilence( unsigned int milliseconds, unsigned int dont_abort )
 	while( i-- > 0 && !(Cadence_Cancelled == 1 && dont_abort == 0) );
 }
 
-void PlayTone( unsigned int milliseconds, const int16_t * tone_data, unsigned int length, unsigned int dont_abort )
+void PlayTone( const unsigned int milliseconds, const int16_t * tone_data, const unsigned int length, const unsigned int dont_abort )
 {
 	if( Cadence_Cancelled == 1 && dont_abort == 0 ) return;
 
@@ -3098,7 +3097,7 @@ void PlayTone( unsigned int milliseconds, const int16_t * tone_data, unsigned in
 	while( i-- > 0 && !(Cadence_Cancelled == 1 && dont_abort == 0) );
 }
 
-void PlaySample16khz( const int16_t * pSampleData, unsigned int start, unsigned int stop, unsigned int dont_abort )
+void PlaySample16khz( const int16_t * pSampleData, const unsigned int start, const unsigned int stop, const unsigned int dont_abort )
 {
 	int16_t sample;
 	unsigned int i;
@@ -3135,7 +3134,7 @@ void PlaySample16khz( const int16_t * pSampleData, unsigned int start, unsigned 
 	}
 }
 
-void PlaySample24khz( const int16_t * pSampleData, unsigned int start, unsigned int stop, unsigned int dont_abort )
+void PlaySample24khz( const int16_t * pSampleData, const unsigned int start, const unsigned int stop, const unsigned int dont_abort )
 {
 	int16_t sample = 0;
 	int16_t previous = 0;
@@ -3167,7 +3166,7 @@ void PlaySample24khz( const int16_t * pSampleData, unsigned int start, unsigned 
 	}
 }
 
-void PrintElapsedTime( unsigned int milliseconds, unsigned int display_line )
+void PrintElapsedTime( const unsigned int milliseconds, const unsigned int display_line )
 {
     unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
 
@@ -3336,7 +3335,7 @@ int ReadBatteryCondition( void )
 	return battery_level;
 }
 
-void PlayTimeOrPercent( unsigned int ticks, int play_type )
+void PlayTimeOrPercent( const unsigned int ticks, const unsigned int play_type )
 {
 #ifdef NUMBERS
 
@@ -3563,7 +3562,7 @@ void PlayTimeOrPercent( unsigned int ticks, int play_type )
 #endif
 }
 
-void PlaySpeed( int integer, int fractional )
+void PlaySpeed( unsigned int integer, const unsigned int fractional )
 {
 	PlaySilence( 100, 1 );
 
@@ -3666,7 +3665,7 @@ void PlaySpeed( int integer, int fractional )
 #endif
 }
 
-void PlayDigit( int number )
+void PlayDigit( const unsigned int number )
 {
 #ifdef NUMBERS
 	switch( number )
@@ -3855,7 +3854,7 @@ void ClearTimingHistories( void )
 	}
 }
 
-void ItemCopy( int menu, int source_index, int dest_index, int no_indicators )
+void ItemCopy( const unsigned int menu, const unsigned int source_index, const unsigned int dest_index, const unsigned int no_indicators )
 {
 	int i;
 
