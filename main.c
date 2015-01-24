@@ -165,9 +165,9 @@ void ProcessElapsedTimer( unsigned int aux_config, unsigned int sensor_A, unsign
 
 int DoTimeAndDisabled ( const unsigned int aux_config, unsigned int sensor_A, unsigned int sensor_B, const char * timing_string, const char * elapsed_string );
 int DoTimeAndSpeed	  ( const unsigned int aux1_option,
-						  const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B );
+						const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B, unsigned int * timeout );
 int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
-						  const char * timing_string, const char * elapsed_string );
+						const char * timing_string, const char * elapsed_string, unsigned int * timeout );
 void DoSprintTimer	  ( unsigned int aux_config );
 
 void CopyTimerHistoryDown ( void );
@@ -247,7 +247,6 @@ enum DEVICE_STATE { STARTUP, RECHARGE, WAIT_FOR_USER, WAIT_FOR_SENSORS, WAIT_FOR
 // used as a counter for each timing entry for identification - one meeeeeleeeeeeown entries...ha
 #define MAX_HISTORY_NUMBER 1000000
 
-
 struct TIMING_DEFINITION	// should this keep track of what AUX port the measurement came in on? can scroll in main menu for two times
 {
 	unsigned int number;
@@ -262,6 +261,8 @@ struct TIMING_DEFINITION	// should this keep track of what AUX port the measurem
 	char  speed_string		[ DISPLAY_WIDTH ];
 	char  time_speed_string	[ DISPLAY_WIDTH ];
 };
+
+#define SENSOR_TIMEOUT_PERIOD	15000	// wait 1.5 seconds after speed sensor has triggered
 
 // reserve memory to store all menus
 static struct MENU_DEFINITION Menu_Array[ MENUS_SIZE ];
@@ -1059,8 +1060,11 @@ int main( void )
 									// write Speed: left justified
 									if( Timer_History[ top_index ].elapsed_time == 0 )
 									{
-										sprintf( line_1, "Sprint:" );
-										line_1[ 7 ] = 0x20;
+										sprintf( &line_0[ 12 ], "Sprint" );
+										line_0[ 18 ] = 0x20;
+
+										sprintf( line_1, "Speed:" );
+										line_1[ 6 ] = 0x20;	// get rid of null termination that sprintf put on the end
 									}
 									else
 									{
@@ -1069,8 +1073,8 @@ int main( void )
 										for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_0[ j ] = time[ i ];
 										line_0[ DISPLAY_WIDTH - 2 ] = 0x20; line_0[ DISPLAY_WIDTH - 1 ] = 0x20;
 
-										sprintf( line_1, "Time:" );
-										line_1[ 5 ] = 0x20;	// get rid of null termination that sprintf put on the end
+										sprintf( line_1, "Speed:" );
+										line_1[ 6 ] = 0x20;	// get rid of null termination that sprintf put on the end
 									}
 
 									// write the speed right justified
@@ -1380,6 +1384,19 @@ int main( void )
 				unsigned int sensor_1 = 0;
 				unsigned int sensor_2 = 0;
 
+				unsigned int timeout_1 = 0;
+				unsigned int timeout_2 = 0;
+				
+				// treat sprint timer as disabled since there is nothing to do - will use these to restore
+				unsigned int aux_1_config = Menu_Array[AUX_1_CONFIG].context;
+				unsigned int aux_2_config = Menu_Array[AUX_2_CONFIG].context;
+
+				if( Menu_Array[AUX_1_CONFIG].context == AUX_SPRINT_TIMER )
+					Menu_Array[AUX_1_CONFIG].context = AUX_DISABLED;
+
+				if( Menu_Array[AUX_2_CONFIG].context == AUX_SPRINT_TIMER )
+					Menu_Array[AUX_2_CONFIG].context = AUX_DISABLED;
+
 				do
 				{
 					ReadInputs( &inputs );
@@ -1399,7 +1416,7 @@ int main( void )
 						}
 						else if( Menu_Array[AUX_2_CONFIG].context == AUX_TIME_SPEED )
 						{
-							if( DoSpeedAndDisabled( AUX_2_CONFIG, sensor_2A, sensor_2B, Aux_2_Sensor_Spacing, "TIMING AUX 2", "AUX 2 ELAPSED TIME" ) == 1 ) continue;
+							if( DoSpeedAndDisabled( AUX_2_CONFIG, sensor_2A, sensor_2B, Aux_2_Sensor_Spacing, "TIMING AUX 2", "AUX 2 ELAPSED TIME", & timeout_1 ) == 1 ) continue;
 							break;
 						}
 					}
@@ -1412,7 +1429,7 @@ int main( void )
 						}
 						else if( Menu_Array[AUX_1_CONFIG].context == AUX_TIME_SPEED )
 						{
-							if( DoSpeedAndDisabled( AUX_1_CONFIG, sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, "TIMING AUX 1", "AUX 1 ELAPSED TIME" ) == 1 ) continue;
+							if( DoSpeedAndDisabled( AUX_1_CONFIG, sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, "TIMING AUX 1", "AUX 1 ELAPSED TIME", & timeout_1 ) == 1 ) continue;
 							break;
 						}
 					}
@@ -1479,13 +1496,13 @@ int main( void )
 #endif
 							}
 
-							Delay( 4000 );
+							Delay( 3000 );
 
 							break;
 						}
 						else if( Menu_Array[AUX_2_CONFIG].context == AUX_TIME_SPEED )
 						{
-							if( DoTimeAndSpeed( AUX_TIME, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
+							if( DoTimeAndSpeed( AUX_TIME, sensor_1A, sensor_1B, sensor_2A, sensor_2B, & timeout_1 ) == 1 ) continue;
 							break;
 						}
 					}
@@ -1493,7 +1510,7 @@ int main( void )
 					{
 						if( Menu_Array[AUX_1_CONFIG].context == AUX_TIME_SPEED )
 						{
-							if( DoTimeAndSpeed( AUX_TIME_SPEED, sensor_1A, sensor_1B, sensor_2A, sensor_2B ) == 1 ) continue;
+							if( DoTimeAndSpeed( AUX_TIME_SPEED, sensor_1A, sensor_1B, sensor_2A, sensor_2B, & timeout_1 ) == 1 ) continue;
 							break;
 						}
 					}
@@ -1512,6 +1529,36 @@ int main( void )
 							WriteLCD_Line( line_0, 0 );
 							WriteLCD_Line( line_1, 1 );
 							UpdateLCD();
+						}
+
+						// need separate timeouts for each sensor
+						if( (timeout_1 == 0) && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
+						{
+							timeout_1 = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+						}
+
+						if( (timeout_2 == 0) && ((sensor_2A == 0 && sensor_2B != 0) || (sensor_2A != 0 && sensor_2B == 0)) )
+						{
+							timeout_2 = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+						}
+
+						// check for timeout
+						unsigned int aux_1_faulty = ( Timer_Tick > timeout_1 && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) );
+						unsigned int aux_2_faulty = ( Timer_Tick > timeout_2 && ((sensor_2A == 0 && sensor_2B != 0) || (sensor_2A != 0 && sensor_2B == 0)) );
+
+						if( aux_1_faulty || aux_2_faulty )
+						{
+							WriteLCD_LineCentered( "TIMING ABORTED", 0 );
+
+							if( aux_1_faulty )
+								WriteLCD_LineCentered( "AUX 1 sensor faulty", 1 );
+							else
+								WriteLCD_LineCentered( "AUX 2 sensor faulty", 1 );
+							UpdateLCD();
+
+							Delay( 4000 );
+
+							break;
 						}
 
 						if( sensor_1A == 0 || sensor_1B == 0 || sensor_2A == 0 || sensor_2B == 0 ) continue;
@@ -1550,6 +1597,9 @@ int main( void )
 					}
 				} while( inputs != BUTTON_E && inputs != BUTTON_C && Cancel_Timing != 1 );
 
+				// restore contexts to handle case when one aux port is configured as a sprint timer
+				Menu_Array[AUX_1_CONFIG].context = aux_1_config;
+				Menu_Array[AUX_2_CONFIG].context = aux_2_config;
 
 				if( inputs == BUTTON_E || inputs == BUTTON_C || Cancel_Timing == 1  )
 				{
@@ -1961,7 +2011,7 @@ int DoTimeAndDisabled( const unsigned int aux_config, unsigned int sensor_A, uns
 }
 
 int DoTimeAndSpeed( const unsigned int aux1_option,
-					const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B )
+					const unsigned int sensor_1A, const unsigned int sensor_1B, const unsigned int sensor_2A, const unsigned int sensor_2B, unsigned int * timeout )
 {
 	char line_0[ DISPLAY_WIDTH ] = SPACES;
 	char line_1[ DISPLAY_WIDTH ] = SPACES;
@@ -2002,8 +2052,32 @@ int DoTimeAndSpeed( const unsigned int aux1_option,
 		sensor_spacing	= Aux_2_Sensor_Spacing;
 	}
 
+	// initialize timeout value if first time through
+	if( (*timeout == 0) && ((speed_sensor_A == 0 && speed_sensor_B != 0) || (speed_sensor_A != 0 && speed_sensor_B == 0)) )
+	{
+		*timeout = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+	}
+
+	// check for timeout
+	if( Timer_Tick > *timeout && ((speed_sensor_A == 0 && speed_sensor_B != 0) || (speed_sensor_A != 0 && speed_sensor_B == 0)) )
+	{
+		WriteLCD_LineCentered( "TIMING ABORTED", 0 );
+
+		if( aux1_option == AUX_TIME_SPEED )
+			WriteLCD_LineCentered( "AUX 1 sensor faulty", 1 );
+		else
+			WriteLCD_LineCentered( "AUX 2 sensor faulty", 1 );
+		UpdateLCD();
+
+		Delay( 3000 );
+
+		return 0;
+	}
+
+	// keep waiting for sensors to trip
 	if( speed_sensor_A == 0 || speed_sensor_B == 0 || time_sensor == 0 ) return 1;
 
+	// all sensors tripped so process times
 	if( Cancel_Timing == 0 )
 	{
 		unsigned int elapsed_time, speed_integer, speed_fractional;
@@ -2037,16 +2111,35 @@ int DoTimeAndSpeed( const unsigned int aux1_option,
 }
 
 int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
-						const char * timing_string, const char * elapsed_string )
+						const char * timing_string, const char * elapsed_string, unsigned int * timeout )
 {
+	// after one sensor has been tripped initialize timeout
+	if( (*timeout == 0) && ((sensor_A == 0 && sensor_B != 0) || (sensor_A != 0 && sensor_B == 0)) )
+	{
+		*timeout = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+	}
+
+	if( Timer_Tick > *timeout && ((sensor_A == 0 && sensor_B != 0) || (sensor_A != 0 && sensor_B == 0)) )
+	{
+		if( aux_config == AUX_1_CONFIG )
+			WriteLCD_LineCentered( "AUX 1 sensor faulty", 1 );
+		else
+			WriteLCD_LineCentered( "AUX 2 sensor faulty", 1 );
+		UpdateLCD();
+
+		Delay( 3000 );
+
+		return 0;
+	}
+
 	if( sensor_A == 0 || sensor_B == 0 )
 	{
 		WriteLCD_LineCentered( timing_string, 0 );
 		PrintElapsedTime( Timer_Tick, 1 );
 		UpdateLCD();
-	}
 
-	if( sensor_A == 0 || sensor_B == 0  ) return 1;
+		return 1;
+	}
 
 	if( Cancel_Timing == 0 )
 	{
@@ -2114,10 +2207,10 @@ void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case w
 			UpdateLCD();
 
 			// reset
-			Timer_Tick			= 0;
-			timeout				= 0;
-			sensor_1			= 0;
-			sensor_2			= 0;
+			Timer_Tick	= 0;
+			timeout		= 0;
+			sensor_1	= 0;
+			sensor_2	= 0;
 
 			continue;
 		}
@@ -2143,7 +2236,7 @@ void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case w
 			// set timeout value once an aux 1 sensor is hit
 			if( (timeout == 0 ) && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
 			{
-				timeout = Timer_Tick + 15000;
+				timeout = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
 			}
 
 			if( Timer_Tick > timeout && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
