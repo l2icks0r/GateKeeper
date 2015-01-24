@@ -175,6 +175,8 @@ void AddTimeToTimerHistory( unsigned int aux_config, unsigned int elapsed_time, 
 
 void PrintElapsedTime( unsigned int milliseconds, unsigned int display_line ); // Elapsed time: 999:59.999
 
+void ClearTimingHistories( void );
+
 
 //
 enum INPUTS { 	BUTTON_A 		= 0x0001,
@@ -200,8 +202,9 @@ enum MENUS	   { DROP_GATE = 0,
 				 AUX_2_CONFIG,
 
 				 TIMER_HISTORY,
+				 CLEAR_TIMER_HISTORY,
 
-				 GATE_DROPS,
+				 TOTAL_GATE_DROPS,
 
 				 CADENCE_VOLUME,
 				 AUDIO_IN_VOLUME,
@@ -457,9 +460,16 @@ int main( void )
 							else					menu_index = DROP_GATE;
 						}
 
+						// skip CLEAR_TIMER_HISTORY if history is empty
+						if( menu_index == CLEAR_TIMER_HISTORY && Timer_History_Index == 0 )
+						{
+							if( encoder_delta > 0 ) menu_index = TOTAL_GATE_DROPS;
+							else					menu_index = TIMER_HISTORY;
+						}
+
 						if( menu_index == RELEASE_DEVICE && Magnet_On == 1 ) menu_index = WIRELESS_REMOTE;
 
-						// if the encoder wheel moved then display tne new menu text
+						// if the encoder wheel moved then display the new menu text
 						if( encoder_delta != 0 )
 						{
 							// update the display with the currently selected menu
@@ -1170,6 +1180,62 @@ int main( void )
 							break;
 						}
 
+						case CLEAR_TIMER_HISTORY:
+						{
+							if( Timer_History_Index != 0 )
+							{
+								WriteLCD_LineCentered( "Are you sure?", 0 );
+								WriteLCD_LineCentered( " YES /\1 NO \2", 1 );
+								UpdateLCD();
+
+								while( 1 )
+								{
+									// wait for input
+									do
+									{	encoder_delta = ReadInputs( &inputs );
+
+									} while (encoder_delta == 0 && inputs == 0 );
+
+									if( encoder_delta == -1 )
+									{
+										Menu_Array[ CLEAR_TIMER_HISTORY ].context = 1;
+										WriteLCD_LineCentered( "\1 YES \2/ NO", 1 );
+										UpdateLCD();
+									}
+									else if( encoder_delta == 1 )
+									{
+										Menu_Array[ CLEAR_TIMER_HISTORY ].context = 0;
+										WriteLCD_LineCentered( "YES /\1 NO \2", 1 );
+										UpdateLCD();
+									}
+
+									if( inputs == BUTTON_E )
+									{
+										if( Menu_Array[ CLEAR_TIMER_HISTORY ].context == 1 )
+										{
+											ClearTimingHistories();
+											SetMenuText( Menu_Array[TIMER_HISTORY].item[0], "No history" );
+
+											WriteLCD_LineCentered( "Timing Histories", 0 );
+											WriteLCD_LineCentered( "Cleared", 1 );
+											UpdateLCD();
+
+											Delay( 2000 );
+											menu_index = TIMER_HISTORY;
+
+											break;
+										}
+										else
+										{
+											break;
+										}
+									}
+									continue;
+								}
+							}
+							break;
+						}
+
 						case CADENCE_VOLUME:
 						{
 							while( 1 )
@@ -1315,10 +1381,10 @@ int main( void )
 							break;
 						}
 
-						case GATE_DROPS:
+						case TOTAL_GATE_DROPS:
 						{
-							sprintf( Menu_Array[GATE_DROPS].item[0], "%d", Menu_Array[GATE_DROPS].context );
-							WriteLCD_LineCentered( Menu_Array[ GATE_DROPS ].item[0], 1 );
+							sprintf( Menu_Array[TOTAL_GATE_DROPS].item[0], "%d", Menu_Array[TOTAL_GATE_DROPS].context );
+							WriteLCD_LineCentered( Menu_Array[ TOTAL_GATE_DROPS ].item[0], 1 );
 							UpdateLCD();
 
 							break;
@@ -1758,8 +1824,8 @@ void DropGate( void )
 		GPIO_ResetBits( GPIOD, GPIO_Pin_12 | GPIO_Pin_13| GPIO_Pin_14| GPIO_Pin_15 );
 
 		// update gate drop counter
-		Menu_Array[GATE_DROPS].context += 1;
-		sprintf( Menu_Array[GATE_DROPS].item[0], "%d", Menu_Array[GATE_DROPS].context );
+		Menu_Array[TOTAL_GATE_DROPS].context += 1;
+		sprintf( Menu_Array[TOTAL_GATE_DROPS].item[0], "%d", Menu_Array[TOTAL_GATE_DROPS].context );
 	}
 
 	// Get rid of the static that occurs intermittently
@@ -2200,7 +2266,7 @@ void DoSprintTimer( unsigned int aux_config )	// TODO: need to handle the case w
 
 		if( sensor_1A == 0 && sensor_1B == 0 && sensor_2A == 0 && sensor_2B == 0 )
 		{
-			WriteLCD_LineCentered( "WAITING FOR SENSOR", 0 );
+			WriteLCD_LineCentered( "WAITING FOR SENSORS", 0 );
 
 			if( speed == 0 ) WriteLCD_LineCentered( SPACES, 1 );
 
@@ -3634,13 +3700,13 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ENERGIZE_MAGNET].caption,	  "ENERGIZE MAGNET" );
 	SetMenuText( Menu_Array[ENERGIZE_MAGNET].item[0], "Press button" );
 
-	Menu_Array[GATE_DROPS].menu_type	= NO_INPUT;
-	Menu_Array[GATE_DROPS].context		= 0;
-	Menu_Array[GATE_DROPS].sub_context	= 0;
-	Menu_Array[GATE_DROPS].item_count	= 0;
-	Menu_Array[GATE_DROPS].current_item = 0;
-	SetMenuText( Menu_Array[GATE_DROPS].caption, "TOTAL GATE DROPS" );
-	sprintf( Menu_Array[GATE_DROPS].item[0], "%d", Menu_Array[GATE_DROPS].context );
+	Menu_Array[TOTAL_GATE_DROPS].menu_type	= NO_INPUT;
+	Menu_Array[TOTAL_GATE_DROPS].context		= 0;
+	Menu_Array[TOTAL_GATE_DROPS].sub_context	= 0;
+	Menu_Array[TOTAL_GATE_DROPS].item_count	= 0;
+	Menu_Array[TOTAL_GATE_DROPS].current_item = 0;
+	SetMenuText( Menu_Array[TOTAL_GATE_DROPS].caption, "TOTAL GATE DROPS" );
+	sprintf( Menu_Array[TOTAL_GATE_DROPS].item[0], "%d", Menu_Array[TOTAL_GATE_DROPS].context );
 
 	Menu_Array[GATE_START_DELAY].menu_type		= EDIT_VALUE;
 	Menu_Array[GATE_START_DELAY].context		= 0;
@@ -3699,6 +3765,15 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[TIMER_HISTORY].item[0], "Nothing recorded" );
 	ItemCopy( TIMER_HISTORY, Menu_Array[TIMER_HISTORY].context, 0, 1 );
 
+	Menu_Array[CLEAR_TIMER_HISTORY].menu_type		= VIEW_LIST;
+	Menu_Array[CLEAR_TIMER_HISTORY].context		= 0;
+	Menu_Array[CLEAR_TIMER_HISTORY].sub_context	= 0;
+	Menu_Array[CLEAR_TIMER_HISTORY].item_count	= 1;
+	Menu_Array[CLEAR_TIMER_HISTORY].current_item	= 0;
+	SetMenuText( Menu_Array[CLEAR_TIMER_HISTORY].caption,     "CLEAR TIMER HISTORY" );
+	SetMenuText( Menu_Array[CLEAR_TIMER_HISTORY].item[0], "Press Button" );
+	ItemCopy( CLEAR_TIMER_HISTORY, Menu_Array[TIMER_HISTORY].context, 0, 1 );
+
 	Menu_Array[CADENCE_VOLUME].menu_type	= EDIT_VALUE;
 	Menu_Array[CADENCE_VOLUME].context		= 2;
 	Menu_Array[CADENCE_VOLUME].sub_context	= 0;
@@ -3747,6 +3822,14 @@ void InitMenus( void )
 	ItemCopy( RELEASE_DEVICE, Menu_Array[RELEASE_DEVICE].context, 0, 1 );
 
 	// initialize timing histories array
+	ClearTimingHistories();
+}
+
+void ClearTimingHistories( void )
+{
+	Timer_History_Index  = 0;
+	Timer_History_Number = 0;
+
 	int j, k;
 	for( j = 0; j < MAX_TIMING_HISTORIES; j++ )
 	{
