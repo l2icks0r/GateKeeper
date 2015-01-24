@@ -937,7 +937,7 @@ int main( void )
 										{
 											int new_value = Menu_Array[menu_index].sub_context + encoder_delta;
 
-											if( new_value >= 0 && new_value <= 120 ) // limit to 10 feet? Ha
+											if( new_value >= 12 && new_value <= 48 )
 											{
 												Menu_Array[menu_index].sub_context = new_value;
 
@@ -1032,9 +1032,17 @@ int main( void )
 									for( i = 0; i < strlen( number ); i++ ) line_1[ i ] = number[ i ];
 
 									// write time to bottom line right justified
-									sprintf( time, "%s", Timer_History[ bottom_index ].time_string );
-									for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_1[ j ] = time[ i ];
-									line_1[ DISPLAY_WIDTH - 2 ] = 0x20; line_1[ DISPLAY_WIDTH - 1 ] = 0x20;
+									if( Timer_History[ bottom_index ].elapsed_time != 0 )
+									{
+										sprintf( time, "%s", Timer_History[ bottom_index ].time_string );
+										for( i = 0, j = DISPLAY_WIDTH - strlen( time ) - 2; j < DISPLAY_WIDTH; j++, i++ ) line_1[ j ] = time[ i ];
+										line_1[ DISPLAY_WIDTH - 2 ] = 0x20; line_1[ DISPLAY_WIDTH - 1 ] = 0x20;
+									}
+									else // handle replacing time of 0.000 with "Sprint" text
+									{
+										sprintf( &line_1[ 12 ], "Sprint" );
+										line_1[ 18 ] = 0x20;
+									}
 								}
 								// TIME on top, TIME on bottom
 								else if( !Timer_History[ top_index ].is_a_speed && !Timer_History[ bottom_index ].is_a_speed )
