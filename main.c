@@ -289,7 +289,7 @@ struct TIMING_DEFINITION
 #endif
 
 // 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
-#define MAX_TIMING_HISTORIES 5
+#define MAX_TIMING_HISTORIES 200
 // used as a counter for each timing entry for identification - nine hundred and ninety nine meeeeeleeeeeeown entries...ha!
 #define MAX_HISTORY_NUMBER 9999999
 
