@@ -4058,17 +4058,8 @@ void ReadEverythingFromFlashMemory( void )
 
 	uint32_t stop_address = sizeof( Timer_History ) / 4 + read_address;
 
-	// read the entire timer history array into itself
-	while( read_address < stop_address )
-	{
-//		*p_data = *(volatile uint32_t*)read_address;
-//		p_data++;
-
-		*(p_data++) = *(volatile uint32_t*)read_address;
-		read_address += 4;
-	}
-
-	int i;
+	// read the entire timer history array into itself via one line of code! w00t!
+	for( ; read_address < stop_address; read_address += 4 ) *(p_data++) = *(volatile uint32_t*)read_address;
 
 	// read individual statics
 	Timer_History_Index		= *(volatile uint32_t*)read_address; read_address += 4;
@@ -4076,6 +4067,8 @@ void ReadEverythingFromFlashMemory( void )
 	Gate_Drop_Delay			= *(volatile uint32_t*)read_address; read_address += 4;
 	Aux_1_Sensor_Spacing	= *(volatile uint32_t*)read_address; read_address += 4;
 	Aux_2_Sensor_Spacing	= *(volatile uint32_t*)read_address; read_address += 4;
+
+	int i;
 
 	Menu_Array[ TOTAL_GATE_DROPS ].context	= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
