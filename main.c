@@ -19,9 +19,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define HIGH_MEM
-//#define CADENCE
-//#define NUMBERS
+//#define HIGH_MEM
+#define CADENCE
+#define NUMBERS
 
 #include "Square632Hz48k.c"
 #include "Square680Hz48k.c"
@@ -261,15 +261,6 @@ struct TIMING_DEFINITION
 	char time_speed_string	[ DISPLAY_WIDTH ];
 };
 
-// flash read/write related
-#ifdef HIGH_MEM
-#define FLASH_SAVE_MEMORY_START   0x080E0000
-#define FLASH_SAVE_MEMORY_END     0x080FFFFF
-#else
-#define FLASH_SAVE_MEMORY_START   0x0800C000
-#define FLASH_SAVE_MEMORY_END     0x0800FFFF
-#endif
-
 // starting addresses for each sector of flash memory
 #define ADDR_FLASH_SECTOR_0   0x08000000 // starting address of sector 0,  16 K
 #define ADDR_FLASH_SECTOR_1   0x08004000 // starting address of sector 1,  16 K
@@ -283,6 +274,17 @@ struct TIMING_DEFINITION
 #define ADDR_FLASH_SECTOR_9   0x080A0000 // starting address of sector 9,  128 K
 #define ADDR_FLASH_SECTOR_10  0x080C0000 // starting address of sector 10, 128 K
 #define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
+
+// define actual hardware memory addresses to read/write from flash
+// HIGH_MEM is used when using smaller code footprint because save memory that is used
+// for when the entire firmware image is flashed because that memory area gets used for some reason.
+#ifdef HIGH_MEM
+#define FLASH_SAVE_MEMORY_START   0x080E0000
+#define FLASH_SAVE_MEMORY_END     0x080FFFFF
+#else
+#define FLASH_SAVE_MEMORY_START   0x0800C000
+#define FLASH_SAVE_MEMORY_END     0x0800FFFF
+#endif
 
 // 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
 #define MAX_TIMING_HISTORIES 200
@@ -328,31 +330,24 @@ static unsigned int Aux_2_Sensor_Spacing = 0;
 static float Starting_Charge_Level = 0.0f;
 static float Charge_Change 		   = 0.0f;
 
-#define DATA_32  0x12345678
 
-
-int FlashTest(void )
+void SaveEverythingToFlashMemory( void )
 {
-
-	uint32_t Address = 0;
-	uint32_t i = 0;
-
-	__IO uint32_t data32 = 0;
-	__IO uint32_t MemoryProgramStatus = 0;
-
 	// unlock the flash memory to enable the flash control register access and writing to flash memory
 	FLASH_Unlock();
 
 	// clear pending flags
-	FLASH_ClearFlag( FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
+	FLASH_ClearFlag( FLASH_FLAG_EOP	   | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
 				  	 FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR| FLASH_FLAG_PGSERR );
 
 	// get the number of the start and end sectors
-	uint32_t StartSector = GetFlashSector( FLASH_SAVE_MEMORY_START );
-	uint32_t EndSector	 = GetFlashSector( FLASH_SAVE_MEMORY_END   );
+	uint32_t start_sector = GetFlashSector( FLASH_SAVE_MEMORY_START );
+	uint32_t end_sector	  = GetFlashSector( FLASH_SAVE_MEMORY_END   );
 
-	// erase the user flash memory area
-	for( i = StartSector; i <= EndSector; i += 8 )
+	// must erase an entire memory sector before it can be written to
+	int i;
+
+	for( i = start_sector; i <= end_sector; i += 8 )
 	{
 		// device voltage range supposed to be [2.7V to 3.6V], the operation will be done by word
 		if( FLASH_EraseSector(i, VoltageRange_3) != FLASH_COMPLETE )
@@ -361,49 +356,179 @@ int FlashTest(void )
 		}
 	}
 
-	// program the user Flash area word by word
-	Address = FLASH_SAVE_MEMORY_START;
+	// write to primed flash memory sector
+	uint32_t write_address = FLASH_SAVE_MEMORY_START;
 
-	while( Address < FLASH_SAVE_MEMORY_END )
+	// when ReadEverythingFromFlashMemory is called there is the first initial case where flash memory
+	// as never been written to so it aborts reading if it doesn't find the 0xDEADBEEF
+	FLASH_ProgramWord( write_address, 0xDEADBEEF );
+	write_address += 4;
+
+	// first save out the entire timer histories array
+	volatile uint32_t *p_data = (volatile uint32_t *) & Timer_History;
+
+	uint32_t j = 0;
+	uint32_t stop_address = sizeof( Timer_History ) / 4 + write_address;
+
+	for( i = 0; write_address < stop_address; i++, j += 4 )
 	{
-		if( FLASH_ProgramWord( Address, DATA_32 ) == FLASH_COMPLETE )
+		if( FLASH_ProgramWord( write_address, *p_data ) == FLASH_COMPLETE )
 		{
-			Address = Address + 4;
-		}
-		else
-		{
-			// TODO: add code to handle the case when writing a word fails
+			p_data++;
+
+			write_address += 4;
 		}
 	}
+
+	// next save out important statics
+	FLASH_ProgramWord( write_address, Timer_History_Index  );
+	write_address += 4;
+
+	FLASH_ProgramWord( write_address, Timer_History_Number );
+	write_address += 4;
+
+	FLASH_ProgramWord( write_address, Gate_Drop_Delay );
+	write_address += 4;
+
+	FLASH_ProgramWord( write_address, Aux_1_Sensor_Spacing );
+	write_address += 4;
+
+	FLASH_ProgramWord( write_address, Aux_2_Sensor_Spacing );
+	write_address += 4;
+
+	FLASH_ProgramWord( write_address, Menu_Array[ TOTAL_GATE_DROPS ].context );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ GATE_START_DELAY ].context );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ GATE_START_DELAY ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ GATE_DROPS_ON ].context	 );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ GATE_DROPS_ON ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ AUX_1_CONFIG ].context	 );
+	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ AUX_1_CONFIG ].sub_context );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ AUX_1_CONFIG ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ AUX_2_CONFIG ].context	 );
+	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ AUX_2_CONFIG ].sub_context );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ AUX_2_CONFIG ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ TIMER_HISTORY ].context	 );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ TIMER_HISTORY ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ CADENCE_VOLUME ].context	 );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ CADENCE_VOLUME ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ AUDIO_IN_VOLUME ].context  );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ WIRELESS_REMOTE ].context  );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ WIRELESS_REMOTE ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ RELEASE_DEVICE ].context   );
+	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ RELEASE_DEVICE ].item[ 0 ][ i ] );
 
 	// lock the flash memory to disable the flash control register access and protect memory from unwanted writes
 	FLASH_Lock();
+}
 
-	Address = FLASH_SAVE_MEMORY_START;
-	MemoryProgramStatus = 0x0;
+void ReadEverythingFromFlashMemory( void )
+{
+	uint32_t read_address = FLASH_SAVE_MEMORY_START;
 
-	// read from recently programmed memory and verify that the write was successful
-	while( Address < FLASH_SAVE_MEMORY_END )
-	{
-		data32 = *(__IO uint32_t*)Address;
+		// check if this is the very first time through looking for first integer
+	if( *(volatile uint32_t*)read_address != 0xDEADBEEF ) return;
 
-		if( data32 != DATA_32 )
-		{
-			MemoryProgramStatus++;
-		}
+	read_address += 4;
 
-		Address = Address + 4;
-	}
-
-	if( MemoryProgramStatus == 0 )
-		WriteLCD_LineCentered( "Verified!", 1 );
-	else
-		WriteLCD_LineCentered( "Failed to Program", 1 );
+	WriteLCD_LineCentered( "Reading", 0 );
 	UpdateLCD();
 
-	Delay( 3000 );
+	volatile uint32_t *p_data = (volatile uint32_t *) & Timer_History;
 
-	return 0;
+	uint32_t stop_address = sizeof( Timer_History ) / 4 + read_address;
+
+	// read the entire timer history array into itself
+	while( read_address < stop_address )
+	{
+		*p_data = *(volatile uint32_t*)read_address;
+
+		p_data++;
+		read_address += 4;
+	}
+
+	int i;
+
+	// read individual statics
+	Timer_History_Index		= *(volatile uint32_t*)read_address; read_address += 4;
+	Timer_History_Number	= *(volatile uint32_t*)read_address; read_address += 4;
+	Gate_Drop_Delay			= *(volatile uint32_t*)read_address; read_address += 4;
+	Aux_1_Sensor_Spacing	= *(volatile uint32_t*)read_address; read_address += 4;
+	Aux_2_Sensor_Spacing	= *(volatile uint32_t*)read_address; read_address += 4;
+
+	Menu_Array[ TOTAL_GATE_DROPS ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ GATE_START_DELAY ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ GATE_START_DELAY ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ GATE_DROPS_ON ].context		= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ GATE_DROPS_ON ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ AUX_1_CONFIG ].context		= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ AUX_1_CONFIG ].sub_context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ AUX_1_CONFIG ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ AUX_2_CONFIG ].context		= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ AUX_2_CONFIG ].sub_context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ AUX_2_CONFIG ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ TIMER_HISTORY ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ TIMER_HISTORY ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ CADENCE_VOLUME ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ CADENCE_VOLUME ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ AUDIO_IN_VOLUME ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ WIRELESS_REMOTE ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ WIRELESS_REMOTE ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ RELEASE_DEVICE ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ RELEASE_DEVICE ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 }
 
 uint32_t GetFlashSector( uint32_t Address )
@@ -462,9 +587,6 @@ uint32_t GetFlashSector( uint32_t Address )
 	return sector;
 }
 
-
-
-
 int main( void )
 {
 	SystemInit();  // line 221 of system_stm32f4xx.c
@@ -486,33 +608,7 @@ int main( void )
 
 	InitAudio();
 
-	// *(__IO uint32_t*)
-
-	const int16_t *pReserveStart = FlashMemoryReserveData;
-	const int16_t *pReserveEnd = FlashMemoryReserveData + FLASH_MEMORY_RESERVE_SIZE;
-
-	Delay( 5000 );
-
-
-	uint32_t Address = FLASH_SAVE_MEMORY_START;
-	__IO uint32_t MemoryProgramStatus = 0x0;
-	__IO uint32_t data32 = 0;
-
-	while( Address < FLASH_SAVE_MEMORY_END )
-	{
-		data32 = *(__IO uint32_t*)Address;
-
-		if( data32 != DATA_32 )
-		{
-			MemoryProgramStatus++;
-		}
-
-	  Address = Address + 4;
-	}
-
-
-	FlashTest();
-
+	ReadEverythingFromFlashMemory();
 
 
 	// enable gates
@@ -921,6 +1017,7 @@ int main( void )
 									continue;
 								}
 
+
 								// check for exit
 								WaitForButtonUp();
 
@@ -943,6 +1040,10 @@ int main( void )
 
 								WriteLCD_LineCentered( Menu_Array[ GATE_START_DELAY ].item[ 0 ], 1 );
 								UpdateLCD();
+
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs );
+								inputs = 0;
 
 								break;
 							}
@@ -1050,6 +1151,10 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ GATE_DROPS_ON ].item[ 0 ], 1 );
 								UpdateLCD();
 
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs );
+								inputs = 0;
+
 								break;
 							}
 							break;
@@ -1137,6 +1242,10 @@ int main( void )
 										WriteLCD_LineCentered( Menu_Array[ menu_index ].caption, 0 );
 										UpdateLCD();
 
+										SaveEverythingToFlashMemory();
+										ReadInputs( &inputs );
+										inputs = 0;
+
 										break;
 									}
 									continue;
@@ -1159,6 +1268,10 @@ int main( void )
 								ItemCopy( menu_index, Menu_Array[ menu_index ].context, 0, 1 );
 								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
 								UpdateLCD();
+
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs );
+								inputs = 0;
 
 								break;
 							}
@@ -1401,8 +1514,15 @@ int main( void )
 									{
 										if( Menu_Array[ CLEAR_TIMER_HISTORY ].context == 1 )
 										{
-											ClearTimingHistories();
 											SetMenuText( Menu_Array[ TIMER_HISTORY ].item[ 0 ], "No history" );
+
+											WriteLCD_LineCentered( "Clearing", 1 );
+											UpdateLCD();
+
+											ClearTimingHistories();
+											SaveEverythingToFlashMemory();
+											ReadInputs( &inputs );
+											inputs = 0;
 
 											WriteLCD_LineCentered( "Timing Histories", 0 );
 											WriteLCD_LineCentered( "Cleared", 1 );
@@ -1467,6 +1587,10 @@ int main( void )
 							PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
 							InitAudio();
 #endif
+							SaveEverythingToFlashMemory();
+							ReadInputs( &inputs );
+							inputs = 0;
+
 							break;
 						}
 
@@ -1510,6 +1634,10 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
 								UpdateLCD();
 
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs );
+								inputs = 0;
+
 								break;
 							}
 
@@ -1546,6 +1674,10 @@ int main( void )
 								ItemCopy( WIRELESS_REMOTE, Menu_Array[ WIRELESS_REMOTE ].context, 0, 1 );
 								WriteLCD_LineCentered( Menu_Array[ WIRELESS_REMOTE ].item[ 0 ], 1 );
 								UpdateLCD();
+
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs );
+								inputs = 0;
 
 								break;
 							}
@@ -1600,7 +1732,7 @@ int main( void )
 									switch( new_item )
 									{
 										case 1: { Menu_Array[ RELEASE_DEVICE ].context = RELEASE_DEVICE_SOLENOID;	break;	}
-										case 2: { Menu_Array[ RELEASE_DEVICE ].context = RELEASE_DEVICE_MAGNET;	break;	}
+										case 2: { Menu_Array[ RELEASE_DEVICE ].context = RELEASE_DEVICE_MAGNET;		break;	}
 										case 3: { Menu_Array[ RELEASE_DEVICE ].context = RELEASE_DEVICE_AIR_RAM;	break;	}
 									}
 
@@ -1613,6 +1745,10 @@ int main( void )
 								ItemCopy( RELEASE_DEVICE, Menu_Array[ RELEASE_DEVICE ].context, 0, 1 );
 								WriteLCD_LineCentered( Menu_Array[ RELEASE_DEVICE ].item[ 0 ], 1 );
 								UpdateLCD();
+
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs );
+								inputs = 0;
 
 								break;
 							}
@@ -1845,6 +1981,14 @@ int main( void )
 						break;
 					}
 				} while( inputs != BUTTON_E && inputs != BUTTON_C && Cancel_Timing != 1 );
+
+				// only save if timing wasn't cancelled
+				if( Cancel_Timing != 1 )
+				{
+					SaveEverythingToFlashMemory();
+					ReadInputs( &inputs );
+					inputs = 0;
+				}
 
 				// restore contexts to handle case when one aux port is configured as a sprint timer
 				Menu_Array[ AUX_1_CONFIG ].context = aux_1_config;
