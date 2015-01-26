@@ -1,3 +1,5 @@
+#include "FlashMemoryReserve.c"
+
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -14,18 +16,12 @@
 #include "stm32f4xx_tim.h"
 #include "stm32f4xx_rng.h"
 #include "core_cm4.h"
-
+#include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#include "codec.h"
-
-#define STARTUP_SOUND
-#define CADENCE
-#define NUMBERS
-
-#ifdef STARTUP_SOUND
-#include "StartupSound.c"
-#endif
+#define HIGH_MEM
+//#define CADENCE
+//#define NUMBERS
 
 #include "Square632Hz48k.c"
 #include "Square680Hz48k.c"
@@ -38,6 +34,8 @@
 #include "RidersReady24k.c"
 #include "WatchTheGate24k.c"
 #endif
+
+
 
 #ifdef NUMBERS
 #include "Zero.c"
@@ -103,7 +101,7 @@ void WriteLCD_LineCentered	( const char * pString, const unsigned int line_no );
 void UpdateLCD		 		( void );
 
 
-// timer (systeAux_1_Sensor_A_Tickcks)
+// timer
 static int Timer_Tick = 0;
 
 void StartTimer6( void );
@@ -177,6 +175,9 @@ void PrintElapsedTime( const unsigned int milliseconds, const unsigned int displ
 
 void ClearTimingHistories( void );
 
+// get the flash sector number to use with FLASH_EraseSector
+uint32_t GetFlashSector( uint32_t Address );
+
 
 enum INPUTS { 	BUTTON_A 		= 0x0001,
 				BUTTON_B 		= 0x0010,
@@ -244,26 +245,51 @@ struct MENU_DEFINITION
 
 enum DEVICE_STATE { STARTUP, RECHARGE, WAIT_FOR_USER, WAIT_FOR_SENSORS, WAIT_FOR_SPEED_TRAP };
 
-// 192k of RAM, 1000 entries = 78k
-#define MAX_TIMING_HISTORIES 1000
-// used as a counter for each timing entry for identification - one meeeeeleeeeeeown entries...ha
-#define MAX_HISTORY_NUMBER 1000000
-
-struct TIMING_DEFINITION	// should this keep track of what AUX port the measurement came in on? can scroll in main menu for two times
+// timing history size is 80 bytes
+struct TIMING_DEFINITION
 {
 	unsigned int number;
 	unsigned int elapsed_time;
 	unsigned int speed_integer;
 	unsigned int speed_fractional;
 
-	short is_a_speed;
-	short aux_port;
+	char is_a_speed;
+	char aux_port;
 
-	char  time_string		[ DISPLAY_WIDTH ];
-	char  speed_string		[ DISPLAY_WIDTH ];
-	char  time_speed_string	[ DISPLAY_WIDTH ];
+	char time_string		[ DISPLAY_WIDTH ];
+	char speed_string		[ DISPLAY_WIDTH ];
+	char time_speed_string	[ DISPLAY_WIDTH ];
 };
 
+// flash read/write related
+#ifdef HIGH_MEM
+#define FLASH_SAVE_MEMORY_START   0x080E0000
+#define FLASH_SAVE_MEMORY_END     0x080FFFFF
+#else
+#define FLASH_SAVE_MEMORY_START   0x0800C000
+#define FLASH_SAVE_MEMORY_END     0x0800FFFF
+#endif
+
+// starting addresses for each sector of flash memory
+#define ADDR_FLASH_SECTOR_0   0x08000000 // starting address of sector 0,  16 K
+#define ADDR_FLASH_SECTOR_1   0x08004000 // starting address of sector 1,  16 K
+#define ADDR_FLASH_SECTOR_2   0x08008000 // starting address of sector 2,  16 K
+#define ADDR_FLASH_SECTOR_3   0x0800C000 // starting address of sector 3,  16 K
+#define ADDR_FLASH_SECTOR_4   0x08010000 // starting address of sector 4,  64 K
+#define ADDR_FLASH_SECTOR_5   0x08020000 // starting address of sector 5,  128 K
+#define ADDR_FLASH_SECTOR_6   0x08040000 // starting address of sector 6,  128 K
+#define ADDR_FLASH_SECTOR_7   0x08060000 // starting address of sector 7,  128 K
+#define ADDR_FLASH_SECTOR_8   0x08080000 // starting address of sector 8,  128 K
+#define ADDR_FLASH_SECTOR_9   0x080A0000 // starting address of sector 9,  128 K
+#define ADDR_FLASH_SECTOR_10  0x080C0000 // starting address of sector 10, 128 K
+#define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
+
+// 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
+#define MAX_TIMING_HISTORIES 200
+// used as a counter for each timing entry for identification - nine hundred and ninety nine meeeeeleeeeeeown entries...ha!
+#define MAX_HISTORY_NUMBER 9999999
+
+// maximum time to wait between speed sensors
 #define SENSOR_TIMEOUT_PERIOD	15000	// wait 1.5 seconds after speed sensor has triggered
 
 // reserve memory to store all menus
@@ -302,9 +328,143 @@ static unsigned int Aux_2_Sensor_Spacing = 0;
 static float Starting_Charge_Level = 0.0f;
 static float Charge_Change 		   = 0.0f;
 
+#define DATA_32  0x12345678
 
 
-// w00t!
+int FlashTest(void )
+{
+
+	uint32_t Address = 0;
+	uint32_t i = 0;
+
+	__IO uint32_t data32 = 0;
+	__IO uint32_t MemoryProgramStatus = 0;
+
+	// unlock the flash memory to enable the flash control register access and writing to flash memory
+	FLASH_Unlock();
+
+	// clear pending flags
+	FLASH_ClearFlag( FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
+				  	 FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR| FLASH_FLAG_PGSERR );
+
+	// get the number of the start and end sectors
+	uint32_t StartSector = GetFlashSector( FLASH_SAVE_MEMORY_START );
+	uint32_t EndSector	 = GetFlashSector( FLASH_SAVE_MEMORY_END   );
+
+	// erase the user flash memory area
+	for( i = StartSector; i <= EndSector; i += 8 )
+	{
+		// device voltage range supposed to be [2.7V to 3.6V], the operation will be done by word
+		if( FLASH_EraseSector(i, VoltageRange_3) != FLASH_COMPLETE )
+		{
+			// TODO: add code to handle the case when erasing a sector fails
+		}
+	}
+
+	// program the user Flash area word by word
+	Address = FLASH_SAVE_MEMORY_START;
+
+	while( Address < FLASH_SAVE_MEMORY_END )
+	{
+		if( FLASH_ProgramWord( Address, DATA_32 ) == FLASH_COMPLETE )
+		{
+			Address = Address + 4;
+		}
+		else
+		{
+			// TODO: add code to handle the case when writing a word fails
+		}
+	}
+
+	// lock the flash memory to disable the flash control register access and protect memory from unwanted writes
+	FLASH_Lock();
+
+	Address = FLASH_SAVE_MEMORY_START;
+	MemoryProgramStatus = 0x0;
+
+	// read from recently programmed memory and verify that the write was successful
+	while( Address < FLASH_SAVE_MEMORY_END )
+	{
+		data32 = *(__IO uint32_t*)Address;
+
+		if( data32 != DATA_32 )
+		{
+			MemoryProgramStatus++;
+		}
+
+		Address = Address + 4;
+	}
+
+	if( MemoryProgramStatus == 0 )
+		WriteLCD_LineCentered( "Verified!", 1 );
+	else
+		WriteLCD_LineCentered( "Failed to Program", 1 );
+	UpdateLCD();
+
+	Delay( 3000 );
+
+	return 0;
+}
+
+uint32_t GetFlashSector( uint32_t Address )
+{
+	uint32_t sector = 0;
+
+	if((Address < ADDR_FLASH_SECTOR_1) && (Address >= ADDR_FLASH_SECTOR_0))
+	{
+	sector = FLASH_Sector_0;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_2) && (Address >= ADDR_FLASH_SECTOR_1))
+	{
+	sector = FLASH_Sector_1;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_3) && (Address >= ADDR_FLASH_SECTOR_2))
+	{
+	sector = FLASH_Sector_2;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_4) && (Address >= ADDR_FLASH_SECTOR_3))
+	{
+	sector = FLASH_Sector_3;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_5) && (Address >= ADDR_FLASH_SECTOR_4))
+	{
+	sector = FLASH_Sector_4;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_6) && (Address >= ADDR_FLASH_SECTOR_5))
+	{
+	sector = FLASH_Sector_5;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_7) && (Address >= ADDR_FLASH_SECTOR_6))
+	{
+	sector = FLASH_Sector_6;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_8) && (Address >= ADDR_FLASH_SECTOR_7))
+	{
+	sector = FLASH_Sector_7;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_9) && (Address >= ADDR_FLASH_SECTOR_8))
+	{
+	sector = FLASH_Sector_8;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_10) && (Address >= ADDR_FLASH_SECTOR_9))
+	{
+	sector = FLASH_Sector_9;
+	}
+	else if((Address < ADDR_FLASH_SECTOR_11) && (Address >= ADDR_FLASH_SECTOR_10))
+	{
+	sector = FLASH_Sector_10;
+	}
+	else/*(Address < FLASH_END_ADDR) && (Address >= ADDR_FLASH_SECTOR_11))*/
+	{
+	sector = FLASH_Sector_11;
+	}
+
+	return sector;
+}
+
+
+
+
 int main( void )
 {
 	SystemInit();  // line 221 of system_stm32f4xx.c
@@ -326,8 +486,37 @@ int main( void )
 
 	InitAudio();
 
+	// *(__IO uint32_t*)
+
+	const int16_t *pReserveStart = FlashMemoryReserveData;
+	const int16_t *pReserveEnd = FlashMemoryReserveData + FLASH_MEMORY_RESERVE_SIZE;
+
+	Delay( 5000 );
+
+
+	uint32_t Address = FLASH_SAVE_MEMORY_START;
+	__IO uint32_t MemoryProgramStatus = 0x0;
+	__IO uint32_t data32 = 0;
+
+	while( Address < FLASH_SAVE_MEMORY_END )
+	{
+		data32 = *(__IO uint32_t*)Address;
+
+		if( data32 != DATA_32 )
+		{
+			MemoryProgramStatus++;
+		}
+
+	  Address = Address + 4;
+	}
+
+
+	FlashTest();
+
+
+
 	// enable gates
-	GPIO_ResetBits( GPIOA, GPIO_Pin_3 );	// gate drive enable
+ 	GPIO_ResetBits( GPIOA, GPIO_Pin_3 );	// gate drive enable
 
 	static int inputs	  = 0;
 	static int menu_index = 0;
@@ -351,7 +540,6 @@ int main( void )
 					break;
 				}
 
-#ifdef STARTUP_SOUND
 				// initialize attenuator
 				SetAttenuator( 0x41FF );		// write TCON (enable all)
 				SetAttenuator( 0x0038 );		// write pot 0 (pot 0 = aux in audio)
@@ -359,23 +547,16 @@ int main( void )
 				SetAttenuator( 0x1000 | 50 );	// write pot 1 (pot 1 = STM32 audio)
 				GPIO_SetBits( GPIOC, GPIO_Pin_0 );
 
-				Delay( 1300 );
-
 				// write splash text
 				WriteLCD_LineCentered( "** RRP BMX GATES **", 0 );
 				WriteLCD_LineCentered( "Epicenter Prototype", 1 );
 				UpdateLCD();
 
-				PlaySilence( 100, 1 );
-				PlaySample24khz( StartupSoundData, 0, STARTUP_SOUND_SIZE, 1 );
-				PlaySilence( 100, 1 );
-				InitAudio();
-
 				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
 				SetAttenuator( 0x1000 | volume );
 
 				Delay( 1200 );
-#endif
+
 				// go to next menu
 				Device_State = WAIT_FOR_USER;
 				break;
@@ -903,10 +1084,10 @@ int main( void )
 									{
 										case 1: { Menu_Array[ menu_index ].context = AUX_DISABLED; 		break;	}
 										case 2: { Menu_Array[ menu_index ].context = AUX_TIME;			break;	}
-										case 3: { Menu_Array[ menu_index ].context = AUX_TIME_SPEED;		break;	}
+										case 3: { Menu_Array[ menu_index ].context = AUX_TIME_SPEED;	break;	}
 										case 4: { Menu_Array[ menu_index ].context = AUX_SPRINT_TIMER;	break;	}
-										case 5: { Menu_Array[ menu_index ].context = AUX_GATE_SWITCH;		break;	}
-										case 6:	{ Menu_Array[ menu_index ].context = AUX_SENSOR_SPACING;	break;	}
+										case 5: { Menu_Array[ menu_index ].context = AUX_GATE_SWITCH;	break;	}
+										case 6:	{ Menu_Array[ menu_index ].context = AUX_SENSOR_SPACING;break;	}
 									}
 									continue;
 								}
@@ -1192,7 +1373,7 @@ int main( void )
 							if( Timer_History_Index != 0 )
 							{
 								WriteLCD_LineCentered( "Are you sure?", 0 );
-								WriteLCD_LineCentered( " YES /\1 NO \2", 1 );
+								WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
 								UpdateLCD();
 
 								while( 1 )
@@ -1201,18 +1382,18 @@ int main( void )
 									do
 									{	encoder_delta = ReadInputs( &inputs );
 
-									} while (encoder_delta == 0 && inputs == 0 );
+									} while ( encoder_delta == 0 && inputs == 0 );
 
 									if( encoder_delta == -1 )
 									{
 										Menu_Array[ CLEAR_TIMER_HISTORY ].context = 1;
-										WriteLCD_LineCentered( "\1 YES \2/ NO", 1 );
+										WriteLCD_LineCentered( "\1 YES \2/ no", 1 );
 										UpdateLCD();
 									}
 									else if( encoder_delta == 1 )
 									{
 										Menu_Array[ CLEAR_TIMER_HISTORY ].context = 0;
-										WriteLCD_LineCentered( "YES /\1 NO \2", 1 );
+										WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
 										UpdateLCD();
 									}
 
@@ -1611,10 +1792,10 @@ int main( void )
 						}
 
 						// check for timeout
-						unsigned int aux_1_faulty = ( Timer_Tick > timeout_1 && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) );
-						unsigned int aux_2_faulty = ( Timer_Tick > timeout_2 && ((sensor_2A == 0 && sensor_2B != 0) || (sensor_2A != 0 && sensor_2B == 0)) );
+						const unsigned int aux_1_faulty = ( Timer_Tick > timeout_1 && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) );
+						const unsigned int aux_2_faulty = ( Timer_Tick > timeout_2 && ((sensor_2A == 0 && sensor_2B != 0) || (sensor_2A != 0 && sensor_2B == 0)) );
 
-						if( aux_1_faulty || aux_2_faulty )
+						if( aux_1_faulty != 0 || aux_2_faulty != 0 )
 						{
 							WriteLCD_LineCentered( "TIMING ABORTED", 0 );
 
@@ -3841,9 +4022,8 @@ void ClearTimingHistories( void )
 		Timer_History[ j ].elapsed_time		= 0;
 		Timer_History[ j ].speed_integer	= 0;
 		Timer_History[ j ].speed_fractional	= 0;
-
-		Timer_History[ j ].is_a_speed	= 0;
-		Timer_History[ j ].aux_port		= 0;
+		Timer_History[ j ].is_a_speed		= 0;
+		Timer_History[ j ].aux_port			= 0;
 
 		for( k = 0; k < DISPLAY_WIDTH; k++ )
 		{
