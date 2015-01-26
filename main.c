@@ -289,7 +289,7 @@ struct TIMING_DEFINITION
 #endif
 
 // 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
-#define MAX_TIMING_HISTORIES 4
+#define MAX_TIMING_HISTORIES 200
 // used as a counter for each timing entry for identification - nine hundred and ninety nine meeeeeleeeeeeown entries...ha!
 #define MAX_HISTORY_NUMBER 9999999
 
@@ -4154,7 +4154,7 @@ uint32_t GetFlashSector( uint32_t Address )
 	}
 	else if((Address < ADDR_FLASH_SECTOR_8) && (Address >= ADDR_FLASH_SECTOR_7))
 	{
-		sector = FLASH_Sector_7;
+	 	sector = FLASH_Sector_7;
 	}
 	else if((Address < ADDR_FLASH_SECTOR_9) && (Address >= ADDR_FLASH_SECTOR_8))
 	{
