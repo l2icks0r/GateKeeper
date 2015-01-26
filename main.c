@@ -289,7 +289,7 @@ struct TIMING_DEFINITION
 #endif
 
 // 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
-#define MAX_TIMING_HISTORIES 200
+#define MAX_TIMING_HISTORIES 5
 // used as a counter for each timing entry for identification - nine hundred and ninety nine meeeeeleeeeeeown entries...ha!
 #define MAX_HISTORY_NUMBER 9999999
 
@@ -368,7 +368,6 @@ int main( void )
 	}
 
 	ReadEverythingFromFlashMemory();
-
 
 	// enable gates
  	GPIO_ResetBits( GPIOA, GPIO_Pin_3 );	// gate drive enable
@@ -574,7 +573,7 @@ int main( void )
 						// cycle through cadence volume levels of 10%, 20%, 40%, 60%, 80%, 100%
 						const int volume = Menu_Array[ CADENCE_VOLUME ].context;
 
-						if( volume < 10 ) Menu_Array[ CADENCE_VOLUME ].context	  = 10;
+						if( volume < 10 ) Menu_Array[ CADENCE_VOLUME ].context	  	= 10;
 						else if( volume < 20 ) Menu_Array[ CADENCE_VOLUME ].context = 20;
 						else if( volume < 40 ) Menu_Array[ CADENCE_VOLUME ].context = 40;
 						else if( volume < 60 ) Menu_Array[ CADENCE_VOLUME ].context = 60;
@@ -4062,9 +4061,10 @@ void ReadEverythingFromFlashMemory( void )
 	// read the entire timer history array into itself
 	while( read_address < stop_address )
 	{
-		*p_data = *(volatile uint32_t*)read_address;
+//		*p_data = *(volatile uint32_t*)read_address;
+//		p_data++;
 
-		p_data++;
+		*(p_data++) = *(volatile uint32_t*)read_address;
 		read_address += 4;
 	}
 
