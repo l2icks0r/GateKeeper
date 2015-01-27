@@ -19,9 +19,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define HIGH_MEM
-#define CADENCE
-#define NUMBERS
+#define HIGH_MEM
+//#define CADENCE
+//#define NUMBERS
 
 #include "Square632Hz48k.c"
 #include "Square680Hz48k.c"
@@ -100,9 +100,10 @@ void UpdateLCD		 		( void );
 
 
 // timer
-static int Timer_Tick = 0;
+static unsigned int Timer6_Tick	= 0;
+static unsigned int Timer7_Tick = 0;
 
-void StartTimer6( void );
+void StartTimers( void );
 void ShortDelay ( const unsigned int ticks );
 void Delay		( const unsigned int milliseconds );
 
@@ -117,7 +118,7 @@ float BatteryLevel		  ( const unsigned int display_level );
 void InitMenus( void );
 void ItemCopy( const unsigned int menu, const unsigned int source_index, const unsigned int dest_index, const unsigned int no_indicators );
 void SetMenuText( char * menu, const char * text );
-int ReadInputs( int * inputs );
+int  ReadInputs( int * inputs );
 void WaitForButtonUp();
 
 // audio
@@ -145,6 +146,9 @@ void PlayGateUpTones( void );
 void PulseSolenoid( const unsigned int pulse_time );
 // turns magnet off after delay set in GATE_DROPS_ON
 void TurnMagnetOff( void );
+
+// reaction game
+void DoReactionGame( const unsigned int player_count );
 
 // timing
 unsigned int CheckSensor( const unsigned int sensor );
@@ -206,6 +210,8 @@ enum MENUS	   { DROP_GATE = 0,
 				 TIMER_HISTORY,
 				 CLEAR_TIMER_HISTORY,
 
+				 REACTION_GAME,
+
 				 TOTAL_GATE_DROPS,
 
 				 CADENCE_VOLUME,
@@ -220,6 +226,7 @@ enum MENUS	   { DROP_GATE = 0,
 				 MENUS_SIZE };
 
 enum AUX_OPTIONS			{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SPRINT_TIMER = 4, AUX_GATE_SWITCH = 5, AUX_SENSOR_SPACING = 6 };
+enum REACTION_GAME_OPTIONS	{ REACTION_GAME_ONE_PLAYER = 1, REACTION_GAME_TWO_PLAYER = 2, REACTION_GAME_VIEW_STATS = 3, REACTION_GAME_CLEAR_STATS = 4 };
 enum WIRELESS_REMOTE_OPTIONS{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
 enum RELEASE_DEVICE_OPTIONS { RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
 
@@ -332,12 +339,23 @@ static unsigned int Aux_2_Sensor_Spacing = 0;
 static float Starting_Charge_Level = 0.0f;
 static float Charge_Change 		   = 0.0f;
 
+// reaction game
+static unsigned int Start_Reaction_Lights  = 0;
+
+static unsigned int Reaction_Game_P1_BEST  = 0;
+static unsigned int Reaction_Game_P1_AVG   = 0;
+static unsigned int Reaction_Game_P1_WORST = 0;
+
+static unsigned int Reaction_Game_P2_BEST  = 0;
+static unsigned int Reaction_Game_P2_AVG   = 0;
+static unsigned int Reaction_Game_P2_WORST = 0;
+
 
 int main( void )
 {
 	SystemInit();  // line 221 of system_stm32f4xx.c
 
-	StartTimer6(); // system ticks
+	StartTimers(); // system ticks
 
 	InitClocks();
 
@@ -354,18 +372,20 @@ int main( void )
 
 	InitAudio();
 
+#ifndef HIGH_MEM
 	// make sure we occupy at least three sectors with the middle sector being the sector to erase without
 	// disturbing any code or data, with full code footprint we should be using sector 3 only
 	int16_t *p_start = (int16_t*) & FlashMemoryReserveData;
 	int16_t *p_end	 = (int16_t*) & FlashMemoryReserveData + FLASH_MEMORY_RESERVE_SIZE;
 
-	if( (p_start > (int16_t*) FLASH_SAVE_MEMORY_START) || (p_end < (int16_t*)FLASH_SAVE_MEMORY_END) )
+	if( !((p_start < (int16_t*) FLASH_SAVE_MEMORY_START) && (p_end > (int16_t*)FLASH_SAVE_MEMORY_END)) )
 	{
 		WriteLCD_LineCentered( "Flash Memory Reserve", 0 );
 		WriteLCD_LineCentered( "is not broad enough", 1 );
 		UpdateLCD();
-		while( 1 );
+		Delay( 1000 );
 	}
+#endif
 
 	ReadEverythingFromFlashMemory();
 
@@ -497,7 +517,7 @@ int main( void )
 						// skip CLEAR_TIMER_HISTORY if timer history is empty
 						if( menu_index == CLEAR_TIMER_HISTORY && Timer_History_Index == 0 )
 						{
-							if( encoder_delta > 0 ) menu_index = TOTAL_GATE_DROPS;
+							if( encoder_delta > 0 ) menu_index = REACTION_GAME;
 							else					menu_index = TIMER_HISTORY;
 						}
 
@@ -633,11 +653,11 @@ int main( void )
 							WriteLCD_LineCentered( "Gate dropping in", 0 );
 							char line[ DISPLAY_WIDTH ] = SPACES;
 
-							unsigned int end_time = Timer_Tick + Menu_Array[ GATE_START_DELAY ].context * 10000 + 10000;
+							unsigned int end_time = Timer6_Tick + Menu_Array[ GATE_START_DELAY ].context * 10000 + 10000;
 
-							while( Timer_Tick < end_time )
+							while( Timer6_Tick < end_time )
 							{
-								const int seconds = ( (end_time - Timer_Tick) / 10000 );
+								const int seconds = ( (end_time - Timer6_Tick) / 10000 );
 
 								if( seconds == 0 ) break;
 
@@ -950,12 +970,12 @@ int main( void )
 
 									switch( new_item )
 									{
-										case 1: { Menu_Array[ menu_index ].context = AUX_DISABLED; 		break;	}
-										case 2: { Menu_Array[ menu_index ].context = AUX_TIME;			break;	}
-										case 3: { Menu_Array[ menu_index ].context = AUX_TIME_SPEED;	break;	}
-										case 4: { Menu_Array[ menu_index ].context = AUX_SPRINT_TIMER;	break;	}
-										case 5: { Menu_Array[ menu_index ].context = AUX_GATE_SWITCH;	break;	}
-										case 6:	{ Menu_Array[ menu_index ].context = AUX_SENSOR_SPACING;break;	}
+										case 1: { Menu_Array[ menu_index ].context = AUX_DISABLED; 		 break;	}
+										case 2: { Menu_Array[ menu_index ].context = AUX_TIME;			 break;	}
+										case 3: { Menu_Array[ menu_index ].context = AUX_TIME_SPEED;	 break;	}
+										case 4: { Menu_Array[ menu_index ].context = AUX_SPRINT_TIMER;	 break;	}
+										case 5: { Menu_Array[ menu_index ].context = AUX_GATE_SWITCH;	 break;	}
+										case 6:	{ Menu_Array[ menu_index ].context = AUX_SENSOR_SPACING; break;	}
 									}
 									continue;
 								}
@@ -1297,6 +1317,179 @@ int main( void )
 										break;
 									}
 									continue;
+								}
+							}
+							break;
+						}
+
+						case REACTION_GAME:
+						{
+							while( 1 )
+							{
+								WriteLCD_LineCentered( Menu_Array[ REACTION_GAME ].item[ Menu_Array[ REACTION_GAME ].context ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( &inputs );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									const int new_item = Menu_Array[ REACTION_GAME ].current_item + encoder_delta;
+
+									if( new_item > Menu_Array[ REACTION_GAME ].item_count ) continue;
+									if( new_item < 1 ) continue;
+
+									Menu_Array[ REACTION_GAME ].current_item = new_item;
+
+									switch( new_item )
+									{
+										case 1: { Menu_Array[ REACTION_GAME ].context = REACTION_GAME_ONE_PLAYER; 	break;	}
+										case 2: { Menu_Array[ REACTION_GAME ].context = REACTION_GAME_TWO_PLAYER;	break;	}
+										case 3: { Menu_Array[ REACTION_GAME ].context = REACTION_GAME_VIEW_STATS;	break;	}
+										case 4: { Menu_Array[ REACTION_GAME ].context = REACTION_GAME_CLEAR_STATS;	break;	}
+									}
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								if( Menu_Array[ REACTION_GAME ].context == REACTION_GAME_ONE_PLAYER )
+								{
+									DoReactionGame( 1 );
+
+									ItemCopy( REACTION_GAME, Menu_Array[ REACTION_GAME ].context, 0, 1 );
+									WriteLCD_LineCentered( Menu_Array[ REACTION_GAME ].caption, 0 );
+									UpdateLCD();
+
+									break;
+								}
+								else if( Menu_Array[ REACTION_GAME ].context == REACTION_GAME_TWO_PLAYER )
+								{
+									DoReactionGame( 2 );
+
+									ItemCopy( REACTION_GAME, Menu_Array[ REACTION_GAME ].context, 0, 1 );
+									WriteLCD_LineCentered( Menu_Array[ REACTION_GAME ].caption, 0 );
+									UpdateLCD();
+
+									break;
+								}
+								else if( Menu_Array[ REACTION_GAME ].context == REACTION_GAME_VIEW_STATS )
+								{
+									unsigned int minutes_best  = 0, seconds_best  = 0, tens_place_best	= 0, hund_place_best  = 0, thou_place_best  = 0;
+								    unsigned int minutes_avg   = 0, seconds_avg	  = 0, tens_place_avg   = 0, hund_place_avg   = 0, thou_place_avg   = 0;
+								    unsigned int minutes_worst = 0, seconds_worst = 0, tens_place_worst	= 0, hund_place_worst = 0, thou_place_worst = 0;
+
+								    GetTimeFromTicks( Reaction_Game_P1_BEST,  &minutes_best,  &seconds_best,  &tens_place_best,  &hund_place_best,  &thou_place_best  );
+								    GetTimeFromTicks( Reaction_Game_P1_AVG,	  &minutes_avg,   &seconds_avg,   &tens_place_avg,   &hund_place_avg,   &thou_place_avg   );
+								    GetTimeFromTicks( Reaction_Game_P1_WORST, &minutes_worst, &seconds_worst, &tens_place_worst, &hund_place_worst, &thou_place_worst );
+
+									char line0[ DISPLAY_WIDTH ];
+									sprintf( line0, "1: %d.%d%d%d %d.%d%d%d %d.%d%d%d",
+											        seconds_best,	tens_place_best,  hund_place_best,	thou_place_best,
+											        seconds_avg,	tens_place_avg,	  hund_place_avg,	thou_place_avg,
+											        seconds_worst,	tens_place_worst, hund_place_worst,	thou_place_worst );
+									WriteLCD_Line( line0, 0 );
+
+								    GetTimeFromTicks( Reaction_Game_P2_BEST,  &minutes_best,  &seconds_best,  &tens_place_best,  &hund_place_best,  &thou_place_best  );
+								    GetTimeFromTicks( Reaction_Game_P2_AVG,	  &minutes_avg,   &seconds_avg,   &tens_place_avg,   &hund_place_avg,   &thou_place_avg   );
+								    GetTimeFromTicks( Reaction_Game_P2_WORST, &minutes_worst, &seconds_worst, &tens_place_worst, &hund_place_worst, &thou_place_worst );
+
+									char line1[ DISPLAY_WIDTH ];
+									sprintf( line1, "2: %d.%d%d%d %d.%d%d%d %d.%d%d%d",
+											        seconds_best,	tens_place_best,  hund_place_best,	thou_place_best,
+											        seconds_avg,	tens_place_avg,	  hund_place_avg,	thou_place_avg,
+											        seconds_worst,	tens_place_worst, hund_place_worst,	thou_place_worst );
+									WriteLCD_Line( line1, 1 );
+
+									UpdateLCD();
+
+									do
+									{	encoder_delta = ReadInputs( &inputs );
+
+									} while (encoder_delta == 0 && inputs == 0 );
+
+									ItemCopy( REACTION_GAME, Menu_Array[ REACTION_GAME ].context, 0, 1 );
+									WriteLCD_LineCentered( Menu_Array[ REACTION_GAME ].caption, 0 );
+									UpdateLCD();
+
+									break;
+								}
+								else if( Menu_Array[ REACTION_GAME ].context == REACTION_GAME_CLEAR_STATS )
+								{
+									if( (Reaction_Game_P1_BEST == 0) && (Reaction_Game_P1_AVG == 0) && (Reaction_Game_P1_WORST == 0) &&
+										(Reaction_Game_P2_BEST == 0) && (Reaction_Game_P2_AVG == 0) && (Reaction_Game_P2_WORST == 0) )
+									{
+										ItemCopy( REACTION_GAME, Menu_Array[ REACTION_GAME ].context, 0, 1 );
+										WriteLCD_LineCentered( Menu_Array[ REACTION_GAME ].caption, 0 );
+										WriteLCD_LineCentered( "Stats Are Clear", 1 );
+										UpdateLCD();
+
+										Delay( 2000 );
+
+										break;
+									}
+
+									WriteLCD_LineCentered( "Are you sure?", 0 );
+									WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
+									UpdateLCD();
+
+									while( 1 )
+									{
+										// wait for input
+										do
+										{	encoder_delta = ReadInputs( &inputs );
+
+										} while ( encoder_delta == 0 && inputs == 0 );
+
+										if( encoder_delta == -1 )
+										{
+											Menu_Array[ REACTION_GAME ].sub_context = 1;
+											WriteLCD_LineCentered( "\1 YES \2/ no", 1 );
+											UpdateLCD();
+										}
+										else if( encoder_delta == 1 )
+										{
+											Menu_Array[ REACTION_GAME ].sub_context = 0;
+											WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
+											UpdateLCD();
+										}
+
+										if( inputs == BUTTON_E )
+										{
+											if( Menu_Array[ REACTION_GAME ].sub_context == 1 )
+											{
+												Menu_Array[ REACTION_GAME ].sub_context = 0;
+
+												Reaction_Game_P1_BEST  = 0;
+												Reaction_Game_P1_AVG   = 0;
+												Reaction_Game_P1_WORST = 0;
+
+												Reaction_Game_P2_BEST  = 0;
+												Reaction_Game_P2_AVG   = 0;
+												Reaction_Game_P2_WORST = 0;
+
+												SaveEverythingToFlashMemory();
+												ReadInputs( &inputs );
+												inputs = 0;
+
+												WriteLCD_LineCentered( Menu_Array[ REACTION_GAME ].caption, 0 );
+												WriteLCD_LineCentered( "Stats Cleared", 1 );
+												UpdateLCD();
+
+												Delay( 2000 );
+											}
+
+											ItemCopy( REACTION_GAME, Menu_Array[ REACTION_GAME ].context, 0, 1 );
+
+											break;
+										}
+									}
+									break;
 								}
 							}
 							break;
@@ -1682,17 +1875,17 @@ int main( void )
 						// need separate timeouts for each sensor
 						if( (timeout_1 == 0) && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
 						{
-							timeout_1 = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+							timeout_1 = Timer6_Tick + SENSOR_TIMEOUT_PERIOD;
 						}
 
 						if( (timeout_2 == 0) && ((sensor_2A == 0 && sensor_2B != 0) || (sensor_2A != 0 && sensor_2B == 0)) )
 						{
-							timeout_2 = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+							timeout_2 = Timer6_Tick + SENSOR_TIMEOUT_PERIOD;
 						}
 
 						// check for timeout
-						const unsigned int aux_1_faulty = ( Timer_Tick > timeout_1 && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) );
-						const unsigned int aux_2_faulty = ( Timer_Tick > timeout_2 && ((sensor_2A == 0 && sensor_2B != 0) || (sensor_2A != 0 && sensor_2B == 0)) );
+						const unsigned int aux_1_faulty = ( Timer6_Tick > timeout_1 && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) );
+						const unsigned int aux_2_faulty = ( Timer6_Tick > timeout_2 && ((sensor_2A == 0 && sensor_2B != 0) || (sensor_2A != 0 && sensor_2B == 0)) );
 
 						if( aux_1_faulty != 0 || aux_2_faulty != 0 )
 						{
@@ -1900,7 +2093,7 @@ void DropGate( void )
 		GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN (red) light ON
 
 		// reset system ticks, will be displayed for timing and used with delays
-		Timer_Tick 			= 0;
+		Timer6_Tick 		= 0;
 
 		// initialize the sensors so the tick value is set only once from the timer 6 interrupt
 		Aux_1_Sensor_A_Tick = 0;
@@ -1933,6 +2126,143 @@ void DropGate( void )
 #endif
 }
 
+void DoReactionGame( const unsigned int player_count )
+{
+	/*
+	do
+	{
+		encoder_delta = ReadInputs( &inputs );
+
+		unsigned int minutes_best  = 0, seconds_best  = 0, tens_place_best	= 0, hund_place_best  = 0, thou_place_best  = 0;
+	    unsigned int minutes_avg   = 0, seconds_avg	  = 0, tens_place_avg   = 0, hund_place_avg   = 0, thou_place_avg   = 0;
+	    unsigned int minutes_worst = 0, seconds_worst = 0, tens_place_worst	= 0, hund_place_worst = 0, thou_place_worst = 0;
+
+	    GetTimeFromTicks( Reaction_Game_P1_BEST,  &minutes_best,  &seconds_best,  &tens_place_best,  &hund_place_best,  &thou_place_best  );
+	    GetTimeFromTicks( Reaction_Game_P1_AVG,	  &minutes_avg,   &seconds_avg,   &tens_place_avg,   &hund_place_avg,   &thou_place_avg   );
+	    GetTimeFromTicks( Reaction_Game_P1_WORST, &minutes_worst, &seconds_worst, &tens_place_worst, &hund_place_worst, &thou_place_worst );
+
+		char line[ DISPLAY_WIDTH ];
+		sprintf( line, "%d.%d%d%d  %d.%d%d%d  %d.%d%d%d ",
+				        seconds_best,	tens_place_best,  hund_place_best,	thou_place_best,
+				        seconds_avg,	tens_place_avg,	  hund_place_avg,	thou_place_avg,
+				        seconds_worst,	tens_place_worst, hund_place_worst,	thou_place_worst );
+
+		WriteLCD_Line( "BEST    AVG   WORST ", 0 );
+		WriteLCD_Line( line, 1 );
+		UpdateLCD();
+
+	} while( inputs != BUTTON_E );
+	*/
+
+
+	WriteLCD_LineCentered( "GET READY", 0 );
+	WriteLCD_LineCentered( SPACES, 1 );
+	UpdateLCD();
+
+	Delay( 500 );
+
+#ifdef CADENCE
+	// start playing the voice part of the cadence
+	PlaySample24khz( OkRidersData,		0, OK_RIDERS_SIZE,		0 );
+	PlaySilence( 149, 0 );
+
+	PlaySample24khz( RandomStartData,	0, RANDOM_START_SIZE,	0 );
+	PlaySilence( 1810, 0 );
+
+	PlaySample24khz( RidersReadyData,	0, RIDERS_READY_SIZE,	0 );
+	PlaySilence( 179, 0 );
+#endif
+
+#ifdef CADENCE
+		PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );
+#endif
+
+	// wait 0.10 to 2.7 seconds
+	PlaySilence( GetRandomNumber() % 2600 + 100, 0 );
+
+	// initialize the sensors so the tick value is set only once from the timer 6 interrupt
+	Aux_1_Sensor_A_Tick = 0;
+	Aux_1_Sensor_B_Tick = 0;
+	Aux_2_Sensor_A_Tick = 0;
+	Aux_2_Sensor_B_Tick = 0;
+
+	Timer6_Tick 		= 0;
+	Timer7_Tick 		= 0;
+
+	unsigned int aux1_sensor = 0;
+	unsigned int aux2_sensor = 0;
+
+	// signal timer 7 to start lights and tones
+	Start_Reaction_Lights = 1;
+
+	unsigned int gate_drop_delay = Menu_Array[ GATE_DROPS_ON ].context * 10;
+
+	while( Timer6_Tick < gate_drop_delay )
+	{
+		aux1_sensor = (Aux_1_Sensor_A_Tick | Aux_1_Sensor_B_Tick);
+		aux2_sensor = (Aux_2_Sensor_A_Tick | Aux_2_Sensor_B_Tick);
+
+		if( aux1_sensor != 0 )
+		{
+			WriteLCD_LineCentered( "Aux 1: Hit the gate!", 0 );
+			UpdateLCD();
+
+			aux1_sensor = 0xDEAD;
+		}
+
+		if( aux2_sensor != 0 && player_count == 2 )
+		{
+			WriteLCD_LineCentered( "Aux 2: Hit the gate!", 1 );
+			UpdateLCD();
+
+			aux2_sensor = 0xDEAD;
+		}
+	}
+
+	if( (player_count == 1 && aux1_sensor == 0xDEAD) || ( player_count == 2 && aux1_sensor == 0xDEAD && aux2_sensor == 0xDEAD ) )
+	{
+		// both players hit the gate so do something like flash lights or something
+		Delay( 2000 );
+	}
+	else
+	{
+		while( 1 )
+		{
+			if( player_count == 2 )
+			{
+				if( Aux_1_Sensor_A_Tick == 0 && Aux_1_Sensor_B_Tick == 0 )
+					PrintElapsedTime( Timer7_Tick, 0 );
+
+				if( Aux_2_Sensor_A_Tick == 0 && Aux_2_Sensor_B_Tick == 0 )
+					PrintElapsedTime( Timer7_Tick, 1 );
+
+				if( (Aux_1_Sensor_A_Tick || Aux_1_Sensor_B_Tick) && (Aux_1_Sensor_A_Tick || Aux_1_Sensor_B_Tick) )
+					break;
+			}
+			else
+			{
+				if( Aux_1_Sensor_A_Tick == 0 && Aux_1_Sensor_B_Tick == 0 )
+					PrintElapsedTime( Timer7_Tick, 0 );
+
+				if( (Aux_1_Sensor_A_Tick || Aux_1_Sensor_B_Tick) && (Aux_1_Sensor_A_Tick || Aux_1_Sensor_B_Tick) )
+					break;
+			}
+
+			UpdateLCD();
+		}
+	}
+
+	Delay( 4000 );
+
+	WriteLCD_LineCentered( "Game Over!", 0 );
+	WriteLCD_LineCentered( "Game Over!", 1 );
+	UpdateLCD();
+
+	Delay( 1000 );
+
+	//SaveEverythingToFlashMemory();
+}
+
 unsigned int CheckSensor( const unsigned int sensor )
 {
 	switch( sensor )
@@ -1960,7 +2290,7 @@ void GetTimeString( const unsigned int sensor_ticks, char *time_string )
 	unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
 
 	if( sensor_ticks == 0 )
-		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+		GetTimeFromTicks( Timer6_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 	else
 		GetTimeFromTicks( sensor_ticks, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 
@@ -1995,7 +2325,7 @@ void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, c
 
 	// construct sensor 1 time string
 	if( sensor_1 == 0 )
-		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+		GetTimeFromTicks( Timer6_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 	else
 		GetTimeFromTicks( sensor_1, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 
@@ -2012,7 +2342,7 @@ void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, c
 
 	// construct sensor 2 time string
 	if( sensor_2 == 0 )
-		GetTimeFromTicks( Timer_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
+		GetTimeFromTicks( Timer6_Tick, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 	else
 		GetTimeFromTicks( sensor_2, &minutes, &seconds, &tens_place, &hund_place, &thou_place );
 
@@ -2141,7 +2471,7 @@ int DoTimeAndDisabled( const unsigned int aux_config, unsigned int sensor_A, uns
 	if( sensor_A == 0 && sensor_B == 0 )
 	{
 		WriteLCD_LineCentered( timing_string, 0 );
-		PrintElapsedTime( Timer_Tick, 1 );
+		PrintElapsedTime( Timer6_Tick, 1 );
 		UpdateLCD();
 
 		return 1;
@@ -2211,11 +2541,11 @@ int DoTimeAndSpeed( const unsigned int aux1_option,
 	// initialize timeout value if first time through
 	if( (*timeout == 0) && ((speed_sensor_A == 0 && speed_sensor_B != 0) || (speed_sensor_A != 0 && speed_sensor_B == 0)) )
 	{
-		*timeout = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+		*timeout = Timer6_Tick + SENSOR_TIMEOUT_PERIOD;
 	}
 
 	// check for timeout
-	if( Timer_Tick > *timeout && ((speed_sensor_A == 0 && speed_sensor_B != 0) || (speed_sensor_A != 0 && speed_sensor_B == 0)) )
+	if( Timer6_Tick > *timeout && ((speed_sensor_A == 0 && speed_sensor_B != 0) || (speed_sensor_A != 0 && speed_sensor_B == 0)) )
 	{
 		WriteLCD_LineCentered( "TIMING ABORTED", 0 );
 
@@ -2272,10 +2602,10 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 	// after one sensor has been tripped initialize timeout
 	if( (*timeout == 0) && ((sensor_A == 0 && sensor_B != 0) || (sensor_A != 0 && sensor_B == 0)) )
 	{
-		*timeout = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+		*timeout = Timer6_Tick + SENSOR_TIMEOUT_PERIOD;
 	}
 
-	if( Timer_Tick > *timeout && ((sensor_A == 0 && sensor_B != 0) || (sensor_A != 0 && sensor_B == 0)) )
+	if( Timer6_Tick > *timeout && ((sensor_A == 0 && sensor_B != 0) || (sensor_A != 0 && sensor_B == 0)) )
 	{
 		if( aux_config == AUX_1_CONFIG )
 			WriteLCD_LineCentered( "AUX 1 sensor faulty", 1 );
@@ -2291,7 +2621,7 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 	if( sensor_A == 0 || sensor_B == 0 )
 	{
 		WriteLCD_LineCentered( timing_string, 0 );
-		PrintElapsedTime( Timer_Tick, 1 );
+		PrintElapsedTime( Timer6_Tick, 1 );
 		UpdateLCD();
 
 		return 1;
@@ -2326,7 +2656,7 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 	char time_string[ DISPLAY_WIDTH ] = ZEROS;
 
 	// reset all the timers
-	Timer_Tick			= 0;
+	Timer6_Tick			= 0;
 	Aux_1_Sensor_A_Tick = 0;
 	Aux_1_Sensor_B_Tick = 0;
 	Aux_2_Sensor_A_Tick = 0;
@@ -2363,7 +2693,7 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 			UpdateLCD();
 
 			// reset
-			Timer_Tick	= 0;
+			Timer6_Tick	= 0;
 			timeout		= 0;
 			sensor_1	= 0;
 			sensor_2	= 0;
@@ -2378,7 +2708,7 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 			else
 				WriteLCD_LineCentered( "TIMING AUX 2", 0 );
 
-			GetTimeString( Timer_Tick, time_string );
+			GetTimeString( Timer6_Tick, time_string );
 
 			WriteLCD_LineCentered( time_string, 1 );
 			UpdateLCD();
@@ -2392,10 +2722,10 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 			// set timeout value once an aux 1 sensor is hit
 			if( (timeout == 0 ) && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
 			{
-				timeout = Timer_Tick + SENSOR_TIMEOUT_PERIOD;
+				timeout = Timer6_Tick + SENSOR_TIMEOUT_PERIOD;
 			}
 
-			if( Timer_Tick > timeout && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
+			if( Timer6_Tick > timeout && ((sensor_1A == 0 && sensor_1B != 0) || (sensor_1A != 0 && sensor_1B == 0)) )
 			{
 				if( sensor_2 != 0 )
 				{
@@ -2965,8 +3295,9 @@ void UpdateLCD( void )
 	}
 }
 
-void StartTimer6( void )
+void StartTimers( void )
 {
+	// timer 6
     RCC->APB1ENR	|= RCC_APB1ENR_TIM6EN;  	// Enable TIM6 clock
 
     //TIM6->PSC		= 8399;                		// 84,000,000 Hz / 8,400 = 10,000 timer ticks per second
@@ -2980,37 +3311,69 @@ void StartTimer6( void )
     NVIC_EnableIRQ(TIM6_DAC_IRQn);              // Enable TIM6 IRQ
     TIM6->CR1 		|= TIM_CR1_CEN;             // Enable TIM6 counter
 
-    Timer_Tick = 0;
+    Timer6_Tick = 0;
+
+    // timer 7
+    RCC->APB1ENR	|= RCC_APB1ENR_TIM7EN;  	// Enable TIM7 clock
+
+    TIM7->PSC		= 839;                		// 84,000,000 Hz / 8,40 = 100,000 timer ticks per second
+    TIM7->ARR		= 9;                   		// 10,000 Hz / 10 = 1000 timer ints per second
+    TIM7->EGR		|= TIM_EGR_UG;              // Force update
+    TIM7->SR		&= ~TIM_SR_UIF;             // Clear the update flag
+    TIM7->DIER		|= TIM_DIER_UIE;            // Enable interrupt on update event
+    NVIC_EnableIRQ(TIM7_IRQn);  	            // Enable TIM7 IRQ
+    TIM7->CR1 		|= TIM_CR1_CEN;             // Enable TIM7 counter
+
+    Timer7_Tick	= 0;
 }
 
-void PulseSolenoid( const unsigned int pulse_time )
+void TIM7_IRQHandler()
 {
-	Gate_Drop_Delay	= Menu_Array[ GATE_DROPS_ON ].context * 10;
+    TIM7->SR &= ~TIM_SR_UIF;   // interrupt has been handled
 
-	Solenoid_Pulse_Time = pulse_time * 10;
+    Timer7_Tick += 1;
 
-	Pulse_Solenoid  = 1;
-}
+    // TODO: well this sucks, why does playing sound on this timer lock timer6?
+    if( Start_Reaction_Lights == 0 ) return;
 
-void TurnMagnetOff( void )
-{
-	Gate_Drop_Delay	= Menu_Array[ GATE_DROPS_ON ].context * 10;
+	// play the cadence tones and light the lights
+	GPIO_SetBits( GPIOD, GPIO_Pin_12 );	// RED light ON
+	PlayTone( 60, Square632HzData, SQUARE_632HZ_SIZE, 1 );
+	PlaySilence( 60, 0 );
 
-	Turn_Magnet_Off = 1;
+	GPIO_SetBits( GPIOD, GPIO_Pin_13 );	// AMBER 1 light ON
+	PlayTone( 60, Square632HzData, SQUARE_632HZ_SIZE, 1 );
+	PlaySilence( 60, 0 );
+
+	GPIO_SetBits( GPIOD, GPIO_Pin_14 );	// AMBER 2 light ON
+	PlayTone( 60, Square632HzData, SQUARE_632HZ_SIZE, 1 );
+	PlaySilence( 60, 0 );
+
+	GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN (red) light ON
+
+	PlayTone( 2250, Square632HzData, SQUARE_632HZ_SIZE, 1 );
+
+	// turn all the lights off
+	GPIO_ResetBits( GPIOD, GPIO_Pin_12 | GPIO_Pin_13| GPIO_Pin_14| GPIO_Pin_15 );
+
+	// Get rid of the static that occurs intermittently
+	InitAudio();
+
+	Start_Reaction_Lights = 0;
 }
 
 void TIM6_DAC_IRQHandler()
 {
     TIM6->SR &= ~TIM_SR_UIF;   // interrupt has been handled
 
-	Timer_Tick += 1;
+	Timer6_Tick += 1;
 
 	// read all the auxililary inputs and save their times for later use for recording time and/or speed
 	// if it is zero it can be set, if it's not? then it can't be changed until it's value is used and reset
-	if( (GPIOB->IDR & 0x0080) == 0 && Aux_1_Sensor_A_Tick == 0 ) Aux_1_Sensor_A_Tick = Timer_Tick;
-	if( (GPIOB->IDR & 0x0100) == 0 && Aux_1_Sensor_B_Tick == 0 ) Aux_1_Sensor_B_Tick = Timer_Tick;
-	if( (GPIOB->IDR & 0x0010) == 0 && Aux_2_Sensor_A_Tick == 0 ) Aux_2_Sensor_A_Tick = Timer_Tick;
-	if( (GPIOB->IDR & 0x0020) == 0 && Aux_2_Sensor_B_Tick == 0 ) Aux_2_Sensor_B_Tick = Timer_Tick;
+	if( (GPIOB->IDR & 0x0080) == 0 && Aux_1_Sensor_A_Tick == 0 ) Aux_1_Sensor_A_Tick = Timer6_Tick;
+	if( (GPIOB->IDR & 0x0100) == 0 && Aux_1_Sensor_B_Tick == 0 ) Aux_1_Sensor_B_Tick = Timer6_Tick;
+	if( (GPIOB->IDR & 0x0010) == 0 && Aux_2_Sensor_A_Tick == 0 ) Aux_2_Sensor_A_Tick = Timer6_Tick;
+	if( (GPIOB->IDR & 0x0020) == 0 && Aux_2_Sensor_B_Tick == 0 ) Aux_2_Sensor_B_Tick = Timer6_Tick;
 
 	// handle dropping the gate
 	if( Pulse_Solenoid == 1 )
@@ -3085,19 +3448,27 @@ void TIM6_DAC_IRQHandler()
 	}
 }
 
-void EXTI1_IRQHandler()
+void PulseSolenoid( const unsigned int pulse_time )
 {
-	if ( EXTI_GetITStatus( EXTI_Line1 ) != RESET )
-	{
-		EXTI_ClearFlag( EXTI_Line1 );
-	}
+	Gate_Drop_Delay	= Menu_Array[ GATE_DROPS_ON ].context * 10;
+
+	Solenoid_Pulse_Time = pulse_time * 10;
+
+	Pulse_Solenoid  = 1;
+}
+
+void TurnMagnetOff( void )
+{
+	Gate_Drop_Delay	= Menu_Array[ GATE_DROPS_ON ].context * 10;
+
+	Turn_Magnet_Off = 1;
 }
 
 void ShortDelay( const unsigned int ticks )
 {
-	const unsigned int end_time = Timer_Tick + ticks;
+	const unsigned int end_time = Timer6_Tick + ticks;
 
-	while( Timer_Tick < end_time );
+	while( Timer6_Tick < end_time );
 }
 
 void Delay( const unsigned int milliseconds )
@@ -3864,6 +4235,19 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ CLEAR_TIMER_HISTORY ].item[ 0 ], "Press Button" );
 	ItemCopy( CLEAR_TIMER_HISTORY, Menu_Array[ CLEAR_TIMER_HISTORY ].context, 0, 1 );
 
+	Menu_Array[ REACTION_GAME ].menu_type	= EDIT_CHOICE;
+	Menu_Array[ REACTION_GAME ].context 	= REACTION_GAME_ONE_PLAYER;
+	Menu_Array[ REACTION_GAME ].sub_context = 0;
+	Menu_Array[ REACTION_GAME ].item_count 	= 4;
+	Menu_Array[ REACTION_GAME ].current_item= 1;
+	SetMenuText( Menu_Array[ REACTION_GAME ].caption, 	"REACTION GAME" );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ 0 ],	SPACES );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_ONE_PLAYER  ],	"\1 One Player \2"  );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_TWO_PLAYER  ],	"\1 Two Player \2"  );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_VIEW_STATS  ],	"\1 View Stats \2"  );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_CLEAR_STATS ],	"\1 Clear Stats \2" );
+	ItemCopy( REACTION_GAME, Menu_Array[ REACTION_GAME ].context, 0, 1 );
+
 	Menu_Array[ CADENCE_VOLUME ].menu_type	  = EDIT_VALUE;
 	Menu_Array[ CADENCE_VOLUME ].context	  = 2;
 	Menu_Array[ CADENCE_VOLUME ].sub_context  = 0;
@@ -3991,9 +4375,19 @@ void SaveEverythingToFlashMemory( void )
 	// next save out important statics
 	FLASH_ProgramWord( write_address, Timer_History_Index  );	write_address += 4;
 	FLASH_ProgramWord( write_address, Timer_History_Number );	write_address += 4;
+
 	FLASH_ProgramWord( write_address, Gate_Drop_Delay 	   );	write_address += 4;
+
 	FLASH_ProgramWord( write_address, Aux_1_Sensor_Spacing );	write_address += 4;
 	FLASH_ProgramWord( write_address, Aux_2_Sensor_Spacing );	write_address += 4;
+
+	FLASH_ProgramWord( write_address, Reaction_Game_P1_BEST );	write_address += 4;
+	FLASH_ProgramWord( write_address, Reaction_Game_P1_AVG );	write_address += 4;
+	FLASH_ProgramWord( write_address, Reaction_Game_P1_WORST );	write_address += 4;
+
+	FLASH_ProgramWord( write_address, Reaction_Game_P2_BEST );	write_address += 4;
+	FLASH_ProgramWord( write_address, Reaction_Game_P2_AVG );	write_address += 4;
+	FLASH_ProgramWord( write_address, Reaction_Game_P2_WORST );	write_address += 4;
 
 	// save contexts and strings
 	FLASH_ProgramWord( write_address, Menu_Array[ TOTAL_GATE_DROPS ].context );	write_address += 4;
@@ -4064,9 +4458,19 @@ void ReadEverythingFromFlashMemory( void )
 	// read individual statics
 	Timer_History_Index		= *(volatile uint32_t*)read_address; read_address += 4;
 	Timer_History_Number	= *(volatile uint32_t*)read_address; read_address += 4;
+
 	Gate_Drop_Delay			= *(volatile uint32_t*)read_address; read_address += 4;
+
 	Aux_1_Sensor_Spacing	= *(volatile uint32_t*)read_address; read_address += 4;
 	Aux_2_Sensor_Spacing	= *(volatile uint32_t*)read_address; read_address += 4;
+
+	Reaction_Game_P1_BEST	= *(volatile uint32_t*)read_address; read_address += 4;
+	Reaction_Game_P1_AVG	= *(volatile uint32_t*)read_address; read_address += 4;
+	Reaction_Game_P1_WORST	= *(volatile uint32_t*)read_address; read_address += 4;
+
+	Reaction_Game_P2_BEST	= *(volatile uint32_t*)read_address; read_address += 4;
+	Reaction_Game_P2_AVG	= *(volatile uint32_t*)read_address; read_address += 4;
+	Reaction_Game_P2_WORST	= *(volatile uint32_t*)read_address; read_address += 4;
 
 	int i;
 
