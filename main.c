@@ -9,6 +9,7 @@
 #include "stm32f4xx_gpio.h"
 #include "stm32f4xx_adc.h"
 #include "stm32f4xx_spi.h"
+
 #include "stm32f4xx_syscfg.h"
 #include "stm32f4xx_exti.h"
 #include "misc.h"
@@ -19,14 +20,15 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define HIGH_MEM
-//#define CADENCE
-//#define NUMBERS
+//#define HIGH_MEM
+#define CADENCE
+#define NUMBERS
 
 #include "Square632Hz48k.c"
 #include "Square680Hz48k.c"
 #include "Square740Hz48k.c"
 #include "Square1150Hz48k.c"
+
 
 #ifdef CADENCE
 #include "OkRiders24k.c"
@@ -371,21 +373,6 @@ int main( void )
 
 	InitAudio();
 
-#ifndef HIGH_MEM
-	// make sure we occupy at least three sectors with the middle sector being the sector to erase without
-	// disturbing any code or data, with full code footprint we should be using sector 3 only
-	int16_t *p_start = (int16_t*) & FlashMemoryReserveData;
-	int16_t *p_end	 = (int16_t*) & FlashMemoryReserveData + FLASH_MEMORY_RESERVE_SIZE;
-
-	if( !((p_start < (int16_t*) FLASH_SAVE_MEMORY_START) && (p_end > (int16_t*)FLASH_SAVE_MEMORY_END)) )
-	{
-		WriteLCD_LineCentered( "Flash Memory Reserve", 0 );
-		WriteLCD_LineCentered( "is not broad enough", 1 );
-		UpdateLCD();
-		Delay( 1000 );
-	}
-#endif
-
 	ReadEverythingFromFlashMemory();
 
 	// enable gates
@@ -559,21 +546,25 @@ int main( void )
 						menu_index = DROP_GATE;
 					}
 					else if( inputs == BUTTON_B )
-					{	// say last time was: whatever
+					{	// say last time was time, last time was time + mph, or just mph
 #ifdef NUMBERS
-						if( Timer_History[ 0 ].elapsed_time != 0 )
+						if( Timer_History[ 0 ].elapsed_time > 0 )
 						{
 							PlaySilence( 100, 1 );
 							PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
 							PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
 
-							if( Timer_History[ 0 ].is_a_speed )
+							if( Timer_History[ 0 ].is_a_speed != 0 )
 							{
 								PlaySample24khz( AtData, 0, AT_SIZE, 1 );
 								PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
 							}
-							InitAudio();
 						}
+						else if( Timer_History[ 0 ].is_a_speed != 0 )
+						{
+							PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+						}
+						InitAudio();
 #endif
 						continue;
 					}
@@ -3405,6 +3396,7 @@ void StartTimers( void )
     TIM7->CR1 		|= TIM_CR1_CEN;             // Enable TIM7 counter
 }
 
+
 void TIM7_IRQHandler()
 {
     TIM7->SR &= ~TIM_SR_UIF;   // interrupt has been handled
@@ -4403,6 +4395,7 @@ void ClearTimingHistories( void )
 
 void SaveEverythingToFlashMemory( void )
 {
+
 	// unlock the flash memory to enable the flash control register access and writing to flash memory
 	FLASH_Unlock();
 
@@ -4514,8 +4507,6 @@ void SaveEverythingToFlashMemory( void )
 
 void ReadEverythingFromFlashMemory( void )
 {
-	uint32_t read_address = FLASH_SAVE_MEMORY_START;
-
 	// make sure there has actually been data written to flash memory
 	if( *(volatile uint32_t*)read_address != 0xDEADBEEF ) return;
 
