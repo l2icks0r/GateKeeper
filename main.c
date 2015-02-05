@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define CADENCE
-#define NUMBERS
+//#define CADENCE
+//#define NUMBERS
 
 #include "FlashMemoryReserve.c"
 
@@ -2115,7 +2115,8 @@ void DropGate( void )
 void DoReactionGame( const unsigned int player_count )
 {
 	// for calculating average times
-	unsigned int game_number = 1;
+	unsigned int p1_game_divisor = 1;
+	unsigned int p2_game_divisor = 1;
 
 	unsigned int p1_avg_total = 0;
 	unsigned int p2_avg_total = 0;
@@ -2128,7 +2129,7 @@ void DoReactionGame( const unsigned int player_count )
 
 		Delay( 500 );
 
-	#ifdef CADENCE
+#ifdef CADENCE
 		// start playing the voice part of the cadence
 		PlaySample24khz( OkRidersData,		0, OK_RIDERS_SIZE,		0 );
 		PlaySilence( 149, 0 );
@@ -2138,11 +2139,11 @@ void DoReactionGame( const unsigned int player_count )
 
 		PlaySample24khz( RidersReadyData,	0, RIDERS_READY_SIZE,	0 );
 		PlaySilence( 179, 0 );
-	#endif
+#endif
 
-	#ifdef CADENCE
-			PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );
-	#endif
+#ifdef CADENCE
+		PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );
+#endif
 
 		// wait 0.10 to 2.7 seconds
 		PlaySilence( GetRandomNumber() % 2600 + 100, 0 );
@@ -2203,7 +2204,7 @@ void DoReactionGame( const unsigned int player_count )
 		else
 		{
 			if( aux1_sensor == 0xDEAD )
-				WriteLCD_LineCentered( "1: HIT THE GATE", 0 );
+				WriteLCD_LineCentered( "HIT THE GATE", 0 );
 			else
 			{
 				if( aux1_sensor == 0 )
@@ -2216,7 +2217,7 @@ void DoReactionGame( const unsigned int player_count )
 			}
 
 			if( aux2_sensor == 0xDEAD )
-				WriteLCD_LineCentered( "2: HIT THE GATE", 1 );
+				WriteLCD_LineCentered( "HIT THE GATE", 1 );
 			else
 			{
 				if( aux2_sensor == 0 )
@@ -2233,41 +2234,58 @@ void DoReactionGame( const unsigned int player_count )
 
 		Delay( 2000 );
 
-		if( (aux1_sensor == 0xDEAD) || ( aux1_sensor == 0xDEAD ) )
+		if( aux1_sensor != 0xDEAD && aux1_sensor != 0 )
 		{
-			game_number -= 1;
-		}
-
-		if( aux1_sensor != 0xDEAD )
-		{
-			if( aux1_sensor != 0 )
+			if( p1_game_divisor == 1 && Reaction_Game_P1_BEST != Reaction_Game_P1_WORST )
 			{
 				p1_avg_total += aux1_sensor;
-				Reaction_Game_P1_AVG = p1_avg_total / game_number;
 
-				Reaction_Game_P1_WORST	= ( aux1_sensor > Reaction_Game_P1_WORST ) ? aux1_sensor : Reaction_Game_P1_WORST;
-
-				if( Reaction_Game_P1_BEST == 0 )
-					Reaction_Game_P1_BEST = aux1_sensor;
+				if( Reaction_Game_P1_AVG == 0 )
+					Reaction_Game_P1_AVG = ( Reaction_Game_P1_BEST + aux1_sensor + Reaction_Game_P1_WORST ) / 3;
 				else
-					Reaction_Game_P1_BEST = ( aux1_sensor < Reaction_Game_P1_BEST  ) ? aux1_sensor : Reaction_Game_P1_BEST;
+					Reaction_Game_P1_AVG = ( Reaction_Game_P1_BEST + Reaction_Game_P1_AVG + Reaction_Game_P1_WORST + aux1_sensor ) / 4;
 			}
+			else
+			{
+				p1_avg_total += aux1_sensor;
+				Reaction_Game_P1_AVG = p1_avg_total / p1_game_divisor;
+			}
+
+			Reaction_Game_P1_WORST	= ( aux1_sensor > Reaction_Game_P1_WORST ) ? aux1_sensor : Reaction_Game_P1_WORST;
+
+			if( Reaction_Game_P1_BEST == 0 )
+				Reaction_Game_P1_BEST = aux1_sensor;
+			else
+				Reaction_Game_P1_BEST = ( aux1_sensor < Reaction_Game_P1_BEST  ) ? aux1_sensor : Reaction_Game_P1_BEST;
+
+			p1_game_divisor += 1;
 		}
 
-		if( aux2_sensor != 0xDEAD && player_count == 2 )
+		if( aux2_sensor != 0xDEAD && aux2_sensor != 0 && player_count == 2 )
 		{
-			if( aux2_sensor != 0 )
+			if( p2_game_divisor == 1 && Reaction_Game_P2_BEST != Reaction_Game_P2_WORST )
 			{
 				p2_avg_total += aux2_sensor;
-				Reaction_Game_P2_AVG = p2_avg_total / game_number;
 
-				Reaction_Game_P2_WORST	= ( aux2_sensor > Reaction_Game_P2_WORST ) ? aux2_sensor : Reaction_Game_P2_WORST;
-
-				if( Reaction_Game_P2_BEST == 0 )
-					Reaction_Game_P2_BEST = aux2_sensor;
+				if( Reaction_Game_P2_AVG == 0 )
+					Reaction_Game_P2_AVG = ( Reaction_Game_P2_BEST + aux2_sensor + Reaction_Game_P2_WORST ) / 3;
 				else
-					Reaction_Game_P2_BEST = ( aux2_sensor < Reaction_Game_P2_BEST  ) ? aux2_sensor : Reaction_Game_P2_BEST;
+					Reaction_Game_P2_AVG = ( Reaction_Game_P2_BEST + Reaction_Game_P2_AVG + Reaction_Game_P2_WORST + aux2_sensor ) / 4;
 			}
+			else
+			{
+				p2_avg_total += aux2_sensor;
+				Reaction_Game_P2_AVG = p2_avg_total / p2_game_divisor;
+			}
+
+			Reaction_Game_P2_WORST	= ( aux2_sensor > Reaction_Game_P2_WORST ) ? aux2_sensor : Reaction_Game_P2_WORST;
+
+			if( Reaction_Game_P2_BEST == 0 )
+				Reaction_Game_P2_BEST = aux2_sensor;
+			else
+				Reaction_Game_P2_BEST = ( aux2_sensor < Reaction_Game_P2_BEST  ) ? aux2_sensor : Reaction_Game_P2_BEST;
+
+			p2_game_divisor += 1;
 		}
 
 		unsigned int minutes_best  = 0, seconds_best  = 0, tens_place_best	= 0, hund_place_best  = 0, thou_place_best  = 0;
@@ -2294,6 +2312,50 @@ void DoReactionGame( const unsigned int player_count )
 		}
 		else
 		{
+			if( aux1_sensor != 0 && aux2_sensor != 0 && aux1_sensor != 0xDEAD && aux2_sensor != 0xDEAD && aux1_sensor == aux2_sensor  )
+			{
+				WriteLCD_LineCentered( "TIE GAME!!!", 0 );
+				WriteLCD_LineCentered( "TIE GAME!!!", 1 );
+			}
+			else if( aux1_sensor == 0xDEAD && aux2_sensor == 0xDEAD )
+			{
+				WriteLCD_LineCentered( "No Winner", 0 );
+				WriteLCD_LineCentered( "Both hit the gate", 1 );
+			}
+			else if( aux1_sensor == 0 && aux2_sensor == 0 )
+			{
+				WriteLCD_LineCentered( "No Winner", 0 );
+				WriteLCD_LineCentered( "Both are too slow", 1 );
+			}
+			else if( aux1_sensor == 0 || aux1_sensor == 0xDEAD )
+			{
+				WriteLCD_LineCentered( "", 0 );
+				WriteLCD_LineCentered( "Player Two WINS!", 1 );
+			}
+			else if( aux2_sensor == 0 || aux2_sensor == 0xDEAD )
+			{
+				WriteLCD_LineCentered( "Player One WINS!", 0 );
+				WriteLCD_LineCentered( "", 1 );
+			}
+			else if( aux1_sensor < aux2_sensor )
+			{
+				WriteLCD_LineCentered( "Player One WINS!", 0 );
+				WriteLCD_LineCentered( "", 1 );
+			}
+			else if( aux1_sensor > aux2_sensor )
+			{
+				WriteLCD_LineCentered( "", 0 );
+				WriteLCD_LineCentered( "Player Two WINS!", 1 );
+			}
+			else
+			{
+				WriteLCD_LineCentered( "?", 0 );
+				WriteLCD_LineCentered( "?", 1 );
+			}
+
+			UpdateLCD();
+			Delay( 2000 );
+
 			sprintf( line0, "1: %d.%d%d%d %d.%d%d%d %d.%d%d%d",
 					        seconds_best,	tens_place_best,  hund_place_best,	thou_place_best,
 					        seconds_avg,	tens_place_avg,	  hund_place_avg,	thou_place_avg,
@@ -2314,8 +2376,6 @@ void DoReactionGame( const unsigned int player_count )
 		}
 
 		UpdateLCD();
-
-		game_number += 1;
 
 		int inputs = 0;
 
@@ -4419,7 +4479,7 @@ void SaveEverythingToFlashMemory( void )
 	write_address += 4;
 
 	// first save out the entire timer histories array
-	static uint32_t *p_data = (uint32_t *) Timer_History;
+	uint32_t *p_data = (uint32_t *) Timer_History;
 
 	uint32_t stop_address = write_address + (sizeof( Timer_History ) / 4);
 
