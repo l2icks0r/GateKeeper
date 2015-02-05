@@ -1,5 +1,3 @@
-#include "FlashMemoryReserve.c"
-
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -20,15 +18,16 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define HIGH_MEM
 #define CADENCE
 #define NUMBERS
+
+#include "FlashMemoryReserve.c"
 
 #include "Square632Hz48k.c"
 #include "Square680Hz48k.c"
 #include "Square740Hz48k.c"
-#include "Square1150Hz48k.c"
 
+#include "Square1150Hz48k.c"
 
 #ifdef CADENCE
 #include "OkRiders24k.c"
@@ -288,13 +287,10 @@ struct TIMING_DEFINITION
 // define actual hardware memory addresses to read/write from flash
 // HIGH_MEM is used when using smaller code footprint because save memory that is used
 // for when the entire firmware image is flashed because that memory area gets used for some reason.
-#ifdef HIGH_MEM
-#define FLASH_SAVE_MEMORY_START   0x080E0000
-#define FLASH_SAVE_MEMORY_END     0x080FFFFF
-#else
-#define FLASH_SAVE_MEMORY_START   0x0800C000
-#define FLASH_SAVE_MEMORY_END     0x0800FFFF
-#endif
+
+#define FLASH_SAVE_MEMORY_START   0x08004000
+#define FLASH_SAVE_MEMORY_END     0x08007FFF
+
 
 // 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
 #define MAX_TIMING_HISTORIES 200
@@ -4395,8 +4391,6 @@ void ClearTimingHistories( void )
 
 void SaveEverythingToFlashMemory( void )
 {
-
-	// unlock the flash memory to enable the flash control register access and writing to flash memory
 	FLASH_Unlock();
 
 	// clear pending flags
@@ -4407,9 +4401,8 @@ void SaveEverythingToFlashMemory( void )
 	uint32_t start_sector = GetFlashSector( FLASH_SAVE_MEMORY_START );
 	uint32_t end_sector	  = GetFlashSector( FLASH_SAVE_MEMORY_END   );
 
+	uint32_t i = 0;
 	// must erase an entire memory sector before it can be written to
-	int i;
-
 	for( i = start_sector; i <= end_sector; i += 8 )
 	{
 		// device voltage range supposed to be [2.7V to 3.6V], the operation will be done by word
@@ -4419,22 +4412,29 @@ void SaveEverythingToFlashMemory( void )
 		}
 	}
 
-	// write to primed flash memory sector
-	uint32_t write_address = FLASH_SAVE_MEMORY_START;
-
 	// when ReadEverythingFromFlashMemory is called there is the first initial case where flash memory
 	// has never been written to so it aborts reading if it doesn't find the 0xDEADBEEF
-	FLASH_ProgramWord( write_address, 0xDEADBEEF );
+	uint32_t write_address	  = FLASH_SAVE_MEMORY_START;
+	FLASH_Status flash_status = FLASH_ProgramWord( write_address, 0xDEADBEEF );
 	write_address += 4;
 
 	// first save out the entire timer histories array
-	volatile uint32_t *p_data = (volatile uint32_t *) & Timer_History;
+	static uint32_t *p_data = (uint32_t *) Timer_History;
 
-	uint32_t stop_address = sizeof( Timer_History ) / 4 + write_address;
+	uint32_t stop_address = write_address + (sizeof( Timer_History ) / 4);
 
 	for( i = 0; write_address < stop_address; i++ )
 	{
-		if( FLASH_ProgramWord( write_address, *p_data ) == FLASH_COMPLETE )
+		flash_status = FLASH_ProgramWord( write_address, *p_data );
+
+		if( flash_status == FLASH_ERROR_PROGRAM )
+		{
+			WriteLCD_LineCentered( "Flash_ProgramWord", 0 );
+			WriteLCD_LineCentered( "failed", 0 );
+			UpdateLCD();
+		}
+
+		if( flash_status == FLASH_COMPLETE )
 		{
 			p_data++;
 			write_address += 4;
@@ -4507,8 +4507,9 @@ void SaveEverythingToFlashMemory( void )
 
 void ReadEverythingFromFlashMemory( void )
 {
-	// make sure there has actually been data written to flash memory
-	if( *(volatile uint32_t*)read_address != 0xDEADBEEF ) return;
+	volatile uint32_t read_address = (volatile uint32_t)FLASH_SAVE_MEMORY_START;
+
+	if( *(volatile uint32_t *)read_address != 0xDEADBEEF ) return;
 
 	read_address += 4;
 
