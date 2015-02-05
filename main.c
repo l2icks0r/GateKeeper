@@ -2123,7 +2123,7 @@ void DoReactionGame( const unsigned int player_count )
 
 	while( 1 )
 	{
-		WriteLCD_LineCentered( "GET READY", 0 );
+		WriteLCD_LineCentered( "GET READY!", 0 );
 		WriteLCD_LineCentered( SPACES, 1 );
 		UpdateLCD();
 
