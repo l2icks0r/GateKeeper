@@ -18,7 +18,7 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define CADENCE
+#define CADENCE
 //#define NUMBERS
 
 #include "FlashMemoryReserve.c"
@@ -398,9 +398,10 @@ int main( void )
 
 				// initialize attenuator
 				SetAttenuator( 0x41FF );		// write TCON (enable all)
-				SetAttenuator( 0x0038 );		// write pot 0 (pot 0 = aux in audio)
 				SetAttenuator( 0x1000 | 50 );	// write pot 1 (pot 1 = STM32 audio)
 				SetAttenuator( 0x1000 | 50 );	// write pot 1 (pot 1 = STM32 audio)
+				SetAttenuator( 0x0000 | (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100 ); // write pot 0 (pot 0 = aux in audio)
+
 				GPIO_SetBits( GPIOC, GPIO_Pin_0 );
 
 				// write splash text
@@ -1956,30 +1957,45 @@ int main( void )
 
 void DropGate( void )
 {
-	WriteLCD_LineCentered( "STARTING GATE DROP", 0 );
-	UpdateLCD();
-
 	Cadence_Cancelled = 0;
 
 #ifdef CADENCE
-	// fade music volume out TODO: make this a logarithmic!
-	int volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
-	int step = volume / 20;
-	int count_step = volume / 3;
+	uint32_t fade_volume = 0;
 
-	for( ; volume >= 0 && Cadence_Cancelled == 0; volume -= step )
+	int volume		= 0;
+	int step		= 0;
+	int count_step  = 0;
+
+	// check to see if there is audio coming in
+	ADC_SoftwareStartConv( ADC2 );
+	while( !ADC_GetFlagStatus(ADC2, ADC_FLAG_EOC) );
+
+	if( ADC_GetConversionValue( ADC2 ) > 0xF00 )
 	{
-		SetAttenuator( 0x0000 | volume );
-		Delay( 80 );
+		fade_volume = 1;
 
-		if( volume > count_step * 2 )
-			WriteLCD_LineCentered( "-=\1 3 \2=-", 1 );
-		else if( volume > count_step )
-			WriteLCD_LineCentered( "-=\1 2 \2=-", 1 );
-		else
-			WriteLCD_LineCentered( "-=\1 1 \2=-", 1 );
+		WriteLCD_LineCentered( "FADING EXT AUDIO OUT", 0 );
+		UpdateLCD();
 
-	    UpdateLCD();
+		// fade music volume out TODO: make this a logarithmic!
+		volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
+		step = volume / 20 + 1;
+		count_step = volume / 3;
+
+		for( ; volume >= 0 && Cadence_Cancelled == 0; volume -= step )
+		{
+			SetAttenuator( 0x0000 | volume );
+			Delay( 80 );
+
+			if( volume > count_step * 2 )
+				WriteLCD_LineCentered( "-=\1 3 \2=-", 1 );
+			else if( volume > count_step )
+				WriteLCD_LineCentered( "-=\1 2 \2=-", 1 );
+			else
+				WriteLCD_LineCentered( "-=\1 1 \2=-", 1 );
+
+		    UpdateLCD();
+		}
 	}
 #endif
 
@@ -2101,13 +2117,19 @@ void DropGate( void )
 	InitAudio();
 
 #ifdef CADENCE
-	// TODO: only restore audio in volume if audio source is connected, write "FADING MUSIC BACK IN" ?
-	int max_volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
-
-	for( volume = 0 ; volume < max_volume; volume += step )
+	if( fade_volume == 1 )
 	{
-		SetAttenuator( 0x0000 | volume );
-		Delay( 60 );
+		WriteLCD_LineCentered( "FADING EXT AUDIO IN", 0 );
+		WriteLCD_Line( SPACES, 1 );
+	    UpdateLCD();
+
+		int max_volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
+
+		for( volume = 0 ; volume < max_volume; volume += step )
+		{
+			SetAttenuator( 0x0000 | volume );
+			Delay( 60 );
+		}
 	}
 #endif
 }
@@ -4390,7 +4412,7 @@ void InitMenus( void )
 	Menu_Array[ AUDIO_IN_VOLUME ].sub_context  = 0;
 	Menu_Array[ AUDIO_IN_VOLUME ].item_count   = 1;
 	Menu_Array[ AUDIO_IN_VOLUME ].current_item = 0;
-	SetMenuText( Menu_Array[ AUDIO_IN_VOLUME ].caption, "AUDIO IN VOLUME" );
+	SetMenuText( Menu_Array[ AUDIO_IN_VOLUME ].caption, "EXT AUDIO IN VOLUME" );
 	sprintf( Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ AUDIO_IN_VOLUME ].context );
 
 	Menu_Array[ BATTERY_CONDITION ].menu_type	= DISPLAY_VALUE;
