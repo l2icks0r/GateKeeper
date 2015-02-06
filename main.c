@@ -19,7 +19,7 @@
 #include "stm32f4xx_flash.h"
 
 #define CADENCE
-//#define NUMBERS
+#define NUMBERS
 
 #include "FlashMemoryReserve.c"
 
@@ -173,7 +173,7 @@ void DoSprintTimer	  ( const unsigned int aux_config );
 void CopyTimerHistoryDown ( void );
 void AddTimeToTimerHistory( const unsigned int aux_config, const unsigned int elapsed_time, const char *time_string );
 
-void PrintElapsedTime( const unsigned int milliseconds, const unsigned int display_line ); // Elapsed time: 999:59.999
+void PrintElapsedTime( const unsigned int milliseconds, const unsigned int fractional, const unsigned int display_line );
 
 void ClearTimingHistories( void );
 
@@ -202,6 +202,7 @@ enum MENUS	   { DROP_GATE = 0,
 				 ENERGIZE_MAGNET,
 
 				 GATE_START_DELAY,
+				 GATE_START_WARNING,
 				 GATE_DROPS_ON,
 
 				 AUX_1_CONFIG,
@@ -284,18 +285,14 @@ struct TIMING_DEFINITION
 #define ADDR_FLASH_SECTOR_10  0x080C0000 // starting address of sector 10, 128 K
 #define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
 
-// define actual hardware memory addresses to read/write from flash
-// HIGH_MEM is used when using smaller code footprint because save memory that is used
-// for when the entire firmware image is flashed because that memory area gets used for some reason.
-
+// define actual hardware memory addresses to read/write from flash (sector 1)
 #define FLASH_SAVE_MEMORY_START   0x08004000
 #define FLASH_SAVE_MEMORY_END     0x08007FFF
 
-
 // 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
 #define MAX_TIMING_HISTORIES 200
-// used as a counter for each timing entry for identification - nine hundred and ninety nine meeeeeleeeeeeown entries...ha!
-#define MAX_HISTORY_NUMBER 9999999
+// used as a counter for each timing entry for identification - reset at 1 million
+#define MAX_HISTORY_NUMBER 999999
 
 // maximum time to wait between speed sensors
 #define SENSOR_TIMEOUT_PERIOD	15000	// wait 1.5 seconds after speed sensor has triggered
@@ -411,8 +408,6 @@ int main( void )
 
 				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
 				SetAttenuator( 0x1000 | volume );
-
-				Delay( 1200 );
 
 				// go to next menu
 				Device_State = WAIT_FOR_USER;
@@ -641,25 +636,41 @@ int main( void )
 							char line[ DISPLAY_WIDTH ] = SPACES;
 
 							unsigned int end_time = Timer6_Tick + Menu_Array[ GATE_START_DELAY ].context * 10000 + 10000;
-
+#ifdef NUMBERS
+							int warning_played = 0;
+#endif
 							while( Timer6_Tick < end_time )
 							{
 								const int seconds = ( (end_time - Timer6_Tick) / 10000 );
 
 								if( seconds == 0 ) break;
 
-								if( seconds > 1 )
-									sprintf( line, "%d seconds", seconds );
-								else
-									sprintf( line, "%d second", seconds );
-
-								if( Menu_Array[ GATE_START_DELAY ].context > 0 )
+								if( seconds > 60 )
 								{
+									PrintElapsedTime( end_time - Timer6_Tick, 0, 1 );
+								}
+								else if( seconds > 1 )
+								{
+									sprintf( line, "%d seconds", seconds );
 									WriteLCD_LineCentered( line, 1 );
-
-									UpdateLCD();
+								}
+								else
+								{
+									sprintf( line, "%d second", seconds );
+									WriteLCD_LineCentered( line, 1 );
 								}
 
+								UpdateLCD();
+#ifdef NUMBERS
+								if( warning_played == 0 && Menu_Array[ GATE_START_WARNING ].context != 0 && seconds <= Menu_Array[ GATE_START_WARNING ].context )
+								{
+									PlaySilence( 100, 1 );
+									PlayTimeOrPercent( 1000 * Menu_Array[ GATE_START_WARNING ].context, PLAY_TIME  );
+									InitAudio();
+
+									warning_played = 1;
+								}
+#endif
 								ReadInputs( &inputs );
 
 								// bypass delay if encoder wheel button
@@ -714,27 +725,31 @@ int main( void )
 						}
 
 						case GATE_START_DELAY:
+						case GATE_START_WARNING:
 						{
 							while( 1 )
 							{
-								if( Menu_Array[ GATE_START_DELAY ].context == 0 )
+								if( Menu_Array[ menu_index ].context == 0 )
 								{
-									sprintf( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "\1 No Delay \2");
+									if( menu_index == GATE_START_DELAY )
+										sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 No Delay \2");
+									else
+										sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 No Warning \2");
 								}
-								else if( Menu_Array[ GATE_START_DELAY ].context == 1 )
+								else if( Menu_Array[ menu_index ].context == 1 )
 								{
-									sprintf( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "\1 %d second \2", Menu_Array[ GATE_START_DELAY ].context );
+									sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 %d second \2", Menu_Array[ menu_index ].context );
 								}
-								else if( Menu_Array[ GATE_START_DELAY ].context < 120 )
+								else if( Menu_Array[ menu_index ].context < 120 )
 								{
-									sprintf( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "\1 %d seconds \2", Menu_Array[ GATE_START_DELAY ].context );
+									sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 %d seconds \2", Menu_Array[ menu_index ].context );
 								}
 								else
 								{
-									sprintf( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "\1 %d minutes \2", Menu_Array[ GATE_START_DELAY ].context / 60 );
+									sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 %d minutes \2", Menu_Array[ menu_index ].context / 60 );
 								}
 
-								WriteLCD_LineCentered( Menu_Array[ GATE_START_DELAY ].item[ 0 ], 1 );
+								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
 								UpdateLCD();
 
 								// read controls
@@ -746,43 +761,50 @@ int main( void )
 								// change menu value
 								if( encoder_delta != 0 )
 								{
-									if( Menu_Array[ GATE_START_DELAY ].context < 60 )
+									if( Menu_Array[ menu_index ].context < 60 )
 									{
-										Menu_Array[ GATE_START_DELAY ].context += encoder_delta;
+										Menu_Array[ menu_index ].context += encoder_delta;
+
+										// don't allow the gate start warning to be less than five seconds
+										if( menu_index == GATE_START_WARNING && Menu_Array[ GATE_START_WARNING ].context < 5 )
+										{
+											if( encoder_delta == 1 ) Menu_Array[ GATE_START_WARNING ].context = 5;
+											if( encoder_delta == -1 ) Menu_Array[ GATE_START_WARNING ].context = 0;
+										}
 									}
-									else if( Menu_Array[ GATE_START_DELAY ].context == 60 )
+									else if( Menu_Array[ menu_index ].context == 60 )
 									{
 										if( encoder_delta < 0 )
 										{
-											Menu_Array[ GATE_START_DELAY ].context += encoder_delta;
+											Menu_Array[ menu_index ].context += encoder_delta;
 										}
 										else
 										{
-											Menu_Array[ GATE_START_DELAY ].context += encoder_delta * 10;
+											Menu_Array[ menu_index ].context += encoder_delta * 10;
 										}
 									}
-									else if( Menu_Array[ GATE_START_DELAY ].context == 120 )
+									else if( Menu_Array[ menu_index ].context == 120 )
 									{
 										if( encoder_delta < 0 )
 										{
-											Menu_Array[ GATE_START_DELAY ].context += encoder_delta * 10;
+											Menu_Array[ menu_index ].context += encoder_delta * 10;
 										}
 										else
 										{
-											Menu_Array[ GATE_START_DELAY ].context += encoder_delta * 60;
+											Menu_Array[ menu_index ].context += encoder_delta * 60;
 										}
 									}
-									else if( Menu_Array[ GATE_START_DELAY ].context >= 120 )
+									else if( Menu_Array[ menu_index ].context >= 120 )
 									{
-										Menu_Array[ GATE_START_DELAY ].context += encoder_delta * 60;
+										Menu_Array[ menu_index ].context += encoder_delta * 60;
 									}
 									else
 									{
-										Menu_Array[ GATE_START_DELAY ].context += encoder_delta * 10;
+										Menu_Array[ menu_index ].context += encoder_delta * 10;
 									}
 
-									if( Menu_Array[ GATE_START_DELAY ].context < 0 )
-										Menu_Array[ GATE_START_DELAY ].context = 0;
+									if( Menu_Array[ menu_index ].context < 0 )
+										Menu_Array[ menu_index ].context = 0;
 
 									continue;
 								}
@@ -791,24 +813,27 @@ int main( void )
 								// check for exit
 								WaitForButtonUp();
 
-								if( Menu_Array[ GATE_START_DELAY ].context == 0 )
+								if( Menu_Array[ menu_index ].context == 0 )
 								{
-									sprintf( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "No Delay");
+									if( menu_index == GATE_START_WARNING )
+										sprintf( Menu_Array[ GATE_START_WARNING ].item[ 0 ], "No Warning");
+									else
+										sprintf( Menu_Array[ menu_index ].item[ 0 ], "No Delay");
 								}
-								else if( Menu_Array[ GATE_START_DELAY ].context == 1 )
+								else if( Menu_Array[ menu_index ].context == 1 )
 								{
-									sprintf( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "%d second", Menu_Array[ GATE_START_DELAY ].context );
+									sprintf( Menu_Array[ menu_index ].item[ 0 ], "%d second", Menu_Array[ menu_index ].context );
 								}
-								else if( Menu_Array[ GATE_START_DELAY ].context < 120 )
+								else if( Menu_Array[ menu_index ].context < 120 )
 								{
-									sprintf( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "%d seconds", Menu_Array[ GATE_START_DELAY ].context );
+									sprintf( Menu_Array[ menu_index ].item[ 0 ], "%d seconds", Menu_Array[ menu_index ].context );
 								}
 								else
 								{
-									sprintf( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "%d minutes", Menu_Array[ GATE_START_DELAY ].context / 60 );
+									sprintf( Menu_Array[ menu_index ].item[ 0 ], "%d minutes", Menu_Array[ menu_index ].context / 60 );
 								}
 
-								WriteLCD_LineCentered( Menu_Array[ GATE_START_DELAY ].item[ 0 ], 1 );
+								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
@@ -2219,7 +2244,7 @@ void DoReactionGame( const unsigned int player_count )
 				else
 				{
 					aux1_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
-					PrintElapsedTime( aux1_sensor, 0 );
+					PrintElapsedTime( aux1_sensor, 1, 0 );
 				}
 			}
 		}
@@ -2234,7 +2259,7 @@ void DoReactionGame( const unsigned int player_count )
 				else
 				{
 					aux1_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
-					PrintElapsedTime( aux1_sensor, 0 );
+					PrintElapsedTime( aux1_sensor, 1, 0 );
 				}
 			}
 
@@ -2247,7 +2272,7 @@ void DoReactionGame( const unsigned int player_count )
 				else
 				{
 					aux2_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
-					PrintElapsedTime( aux2_sensor, 1 );
+					PrintElapsedTime( aux2_sensor, 1, 1 );
 				}
 			}
 		}
@@ -2550,7 +2575,6 @@ void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elap
 	Timer_History_Index++;
 	Timer_History_Index = ( Timer_History_Index > MAX_TIMING_HISTORIES ) ? MAX_TIMING_HISTORIES : Timer_History_Index;
 
-	// reset history index at 10000000 (like anyone would store that many - EVER)
 	Timer_History_Number++;
 	Timer_History_Number = ( Timer_History_Number > MAX_HISTORY_NUMBER ) ? 1 : Timer_History_Number;
 
@@ -2621,7 +2645,7 @@ int DoTimeAndDisabled( const unsigned int aux_config, unsigned int sensor_A, uns
 	if( sensor_A == 0 && sensor_B == 0 )
 	{
 		WriteLCD_LineCentered( timing_string, 0 );
-		PrintElapsedTime( Timer6_Tick, 1 );
+		PrintElapsedTime( Timer6_Tick, 1, 1 );
 		UpdateLCD();
 
 		return 1;
@@ -2771,7 +2795,7 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 	if( sensor_A == 0 || sensor_B == 0 )
 	{
 		WriteLCD_LineCentered( timing_string, 0 );
-		PrintElapsedTime( Timer6_Tick, 1 );
+		PrintElapsedTime( Timer6_Tick, 1, 1 );
 		UpdateLCD();
 
 		return 1;
@@ -3772,7 +3796,7 @@ void PlaySample24khz( const int16_t * pSampleData, const unsigned int start, con
 	}
 }
 
-void PrintElapsedTime( const unsigned int milliseconds, const unsigned int display_line )
+void PrintElapsedTime( const unsigned int milliseconds, const unsigned int fractional, const unsigned int display_line )
 {
     unsigned int minutes = 0, seconds = 0, tens_place = 0, hund_place = 0, thou_place = 0;
 
@@ -3780,10 +3804,20 @@ void PrintElapsedTime( const unsigned int milliseconds, const unsigned int displ
 
     char line[ DISPLAY_WIDTH ] = SPACES;
 
-    if( minutes > 0 )
-    	sprintf( line, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
+    if( fractional == 1 )
+    {
+		if( minutes > 0 )
+			sprintf( line, "%d:%d.%d%d%d", minutes, seconds, tens_place, hund_place, thou_place );
+		else
+			sprintf( line, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
+    }
     else
-    	sprintf( line, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
+    {
+		if( minutes > 0 )
+			sprintf( line, "%d:%d", minutes, seconds );
+		else
+			sprintf( line, "%d", seconds );
+    }
 
     WriteLCD_LineCentered( line, display_line );
 }
@@ -4324,6 +4358,14 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ GATE_START_DELAY ].caption,   "GATE START DELAY" );
 	SetMenuText( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "No Delay" );
 
+	Menu_Array[ GATE_START_WARNING ].menu_type		= EDIT_VALUE;
+	Menu_Array[ GATE_START_WARNING ].context		= 0;
+	Menu_Array[ GATE_START_WARNING ].sub_context	= 0;
+	Menu_Array[ GATE_START_WARNING ].item_count		= 1;
+	Menu_Array[ GATE_START_WARNING ].current_item	= 0;
+	SetMenuText( Menu_Array[ GATE_START_WARNING ].caption,   "GATE START WARNING" );
+	SetMenuText( Menu_Array[ GATE_START_WARNING ].item[ 0 ], "No Warning" );
+
 	Menu_Array[ GATE_DROPS_ON ].menu_type	= EDIT_VALUE;
 	Menu_Array[ GATE_DROPS_ON ].context		= 360;
 	Menu_Array[ GATE_DROPS_ON ].sub_context	= 0;
@@ -4550,6 +4592,10 @@ void SaveEverythingToFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ GATE_START_DELAY ].item[ 0 ][ i ] );
 
+	FLASH_ProgramWord( write_address, Menu_Array[ GATE_START_WARNING ].context );	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ GATE_START_WARNING ].item[ 0 ][ i ] );
+
 	FLASH_ProgramWord( write_address, Menu_Array[ GATE_DROPS_ON ].context	 );	write_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ GATE_DROPS_ON ].item[ 0 ][ i ] );
@@ -4629,6 +4675,10 @@ void ReadEverythingFromFlashMemory( void )
 	Menu_Array[ GATE_START_DELAY ].context	= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ GATE_START_DELAY ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ GATE_START_WARNING ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ GATE_START_WARNING ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 
 	Menu_Array[ GATE_DROPS_ON ].context		= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
