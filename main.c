@@ -2579,12 +2579,9 @@ void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elap
 	else
 		sprintf( time_string, "%d.%d%d%d", seconds, tens_place, hund_place, thou_place );
 
-	int i;
-	for( i = 0; i < DISPLAY_WIDTH; i++ )
-	{
-		Timer_History[ 0 ].time_string[ i ]  = time_string[ i ];
-		Timer_History[ 0 ].speed_string[ i ] = speed_string[ i ];
-	}
+	strcpy( Timer_History[ 0 ].time_string, time_string );
+	strcpy( Timer_History[ 0 ].speed_string, speed_string );
+
 
 	// construct time and speed strings
 	char time_speed_string[ 2 * DISPLAY_WIDTH ];
@@ -2610,8 +2607,7 @@ void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elap
 		sprintf( time_speed_string, "%d:%d.%d%d%d@%s", minutes, seconds, tens_place, hund_place, thou_place, speed_string );
 	}
 
-	const int length = strlen( time_speed_string ) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( time_speed_string );
-	for( i = 0; i < length; i++ ) Timer_History[ 0 ].time_speed_string[ i ] = time_speed_string[ i ];
+	strcpy( Timer_History[ 0 ].time_speed_string, time_speed_string );
 
 	// update menu text
 	if( Timer_History[ 0 ].elapsed_time == 0 )
