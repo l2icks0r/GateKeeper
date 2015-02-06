@@ -2327,6 +2327,11 @@ void DoReactionGame( const unsigned int player_count )
 				WriteLCD_LineCentered( "No Winner", 0 );
 				WriteLCD_LineCentered( "Both are too slow", 1 );
 			}
+			else if( (aux1_sensor == 0 && aux2_sensor == 0xDEAD) || (aux2_sensor == 0 && aux1_sensor == 0xDEAD) )
+			{
+				WriteLCD_LineCentered( "No Winner", 0 );
+				WriteLCD_LineCentered( "", 1 );
+			}
 			else if( aux1_sensor == 0 || aux1_sensor == 0xDEAD )
 			{
 				WriteLCD_LineCentered( "", 0 );
@@ -4462,7 +4467,7 @@ void SaveEverythingToFlashMemory( void )
 	uint32_t end_sector	  = GetFlashSector( FLASH_SAVE_MEMORY_END   );
 
 	uint32_t i = 0;
-	// must erase an entire memory sector before it can be written to
+	// only using sector 1 but this will handle erasing more than one sector if needed later
 	for( i = start_sector; i <= end_sector; i += 8 )
 	{
 		// device voltage range supposed to be [2.7V to 3.6V], the operation will be done by word
@@ -4572,9 +4577,6 @@ void ReadEverythingFromFlashMemory( void )
 	if( *(volatile uint32_t *)read_address != 0xDEADBEEF ) return;
 
 	read_address += 4;
-
-	WriteLCD_LineCentered( "Reading", 0 );
-	UpdateLCD();
 
 	volatile uint32_t *p_data = (volatile uint32_t *) & Timer_History;
 
@@ -4693,7 +4695,7 @@ uint32_t GetFlashSector( uint32_t Address )
 	{
 		sector = FLASH_Sector_10;
 	}
-	else/*(Address < FLASH_END_ADDR) && (Address >= ADDR_FLASH_SECTOR_11))*/
+	else
 	{
 		sector = FLASH_Sector_11;
 	}
