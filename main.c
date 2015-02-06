@@ -632,50 +632,55 @@ int main( void )
 							    break;
 							}
 
-							WriteLCD_LineCentered( "Gate dropping in", 0 );
-							char line[ DISPLAY_WIDTH ] = SPACES;
-
-							unsigned int end_time = Timer6_Tick + Menu_Array[ GATE_START_DELAY ].context * 10000 + 10000;
-#ifdef NUMBERS
-							int warning_played = 0;
-#endif
-							while( Timer6_Tick < end_time )
+							if( Menu_Array[ GATE_START_DELAY ].context > 0 )
 							{
-								const int seconds = ( (end_time - Timer6_Tick) / 10000 );
+								WriteLCD_LineCentered( "Gate dropping in", 0 );
+								char line[ DISPLAY_WIDTH ] = SPACES;
 
-								if( seconds == 0 ) break;
-
-								if( seconds > 60 )
-								{
-									PrintElapsedTime( end_time - Timer6_Tick, 0, 1 );
-								}
-								else if( seconds > 1 )
-								{
-									sprintf( line, "%d seconds", seconds );
-									WriteLCD_LineCentered( line, 1 );
-								}
-								else
-								{
-									sprintf( line, "%d second", seconds );
-									WriteLCD_LineCentered( line, 1 );
-								}
-
-								UpdateLCD();
+								unsigned int end_time = Timer6_Tick + Menu_Array[ GATE_START_DELAY ].context * 10000 + 9999;
 #ifdef NUMBERS
-								if( warning_played == 0 && Menu_Array[ GATE_START_WARNING ].context != 0 && seconds <= Menu_Array[ GATE_START_WARNING ].context )
-								{
-									PlaySilence( 100, 1 );
-									PlayTimeOrPercent( 1000 * Menu_Array[ GATE_START_WARNING ].context, PLAY_TIME  );
-									InitAudio();
-
-									warning_played = 1;
-								}
+								int warning_played = 0;
 #endif
-								ReadInputs( &inputs );
+								while( Timer6_Tick < end_time )
+								{
+									const int seconds = ( (end_time - Timer6_Tick) / 10000 );
 
-								// bypass delay if encoder wheel button
-								if( inputs == BUTTON_E  )
-									break;
+									if( seconds == 0 ) break;
+
+									if( seconds > 60 )
+									{
+										PrintElapsedTime( end_time - Timer6_Tick, 0, 1 );
+									}
+									else if( seconds > 1 )
+									{
+										sprintf( line, "%d seconds", seconds );
+										WriteLCD_LineCentered( line, 1 );
+									}
+									else
+									{
+										sprintf( line, "%d second", seconds );
+										WriteLCD_LineCentered( line, 1 );
+									}
+
+									UpdateLCD();
+#ifdef NUMBERS
+									const int warning_time = Menu_Array[ GATE_START_WARNING ].context;
+
+									if( warning_played == 0 && warning_time != 0 && seconds == warning_time )
+									{
+										PlaySilence( 100, 1 );
+										PlayTimeOrPercent( 1000 * warning_time, PLAY_TIME  );
+										InitAudio();
+
+										warning_played = 1;
+									}
+#endif
+									ReadInputs( &inputs );
+
+									// bypass delay if encoder wheel button
+									if( inputs == BUTTON_E  )
+										break;
+								}
 							}
 
 							// clear the display
