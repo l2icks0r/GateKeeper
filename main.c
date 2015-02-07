@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define CADENCE
-#define NUMBERS
+//#define CADENCE
+//#define NUMBERS
 
 #include "FlashMemoryReserve.c"
 
@@ -183,6 +183,9 @@ void ReadEverythingFromFlashMemory	( void );
 
 // get the flash sector number to use with FLASH_EraseSector
 uint32_t GetFlashSector( uint32_t Address );
+
+// startup light test
+void LightTestCycle( void );
 
 
 enum INPUTS { 	BUTTON_A 		= 0x0001,
@@ -408,6 +411,10 @@ int main( void )
 
 				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
 				SetAttenuator( 0x1000 | volume );
+
+				LightTestCycle();
+
+				Delay( 1000 );
 
 				// go to next menu
 				Device_State = WAIT_FOR_USER;
@@ -2445,6 +2452,69 @@ void DoReactionGame( const unsigned int player_count )
 
 		WaitForButtonUp();
 	}
+}
+
+void LightTestCycle( void )
+{
+	int buffer[ 4 ];
+
+	float theta1 = 0.000 + 0.6f;
+	float theta2 = 0.333 + 0.6f;
+	float theta3 = 0.999 + 0.6f;
+
+	const float resolution = 50.0f;
+	float one_y = 0;
+	float two_y = 0;
+	float three_y = 0;
+
+	unsigned int i = 0;
+
+	while( theta1 < (4 * 3.14159f) + 0.6f )
+	{
+		Delay( 7 );
+
+		one_y = resolution * sin( theta1 ) + resolution;
+		two_y = resolution * sin( theta2 ) + resolution;
+		three_y = resolution * sin( theta3 ) + resolution;
+
+		theta1 += 0.0425f;
+		theta2 += 0.0425f;
+		theta3 += 0.0425f;
+
+		buffer[ 0 ] = buffer[ 1 ] = buffer[ 2 ] = buffer[ 3 ] = 0;
+
+		i = (unsigned int)( one_y / 25.0f );
+		buffer[ i ] = 1;
+		i = (unsigned int)( two_y / 25.0f );
+		buffer[ i ] = 1;
+		i = (unsigned int)( three_y / 25.0f );
+		buffer[ i ] = 1;
+
+		if( buffer[ 0 ] == 1 )
+			GPIO_SetBits( GPIOD, GPIO_Pin_12 );	 // RED light ON
+		else
+			GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
+
+		if( buffer[ 1 ] == 1 )
+			GPIO_SetBits( GPIOD, GPIO_Pin_13 );	 // AMBER 1 light ON
+		else
+			GPIO_ResetBits( GPIOD, GPIO_Pin_13 );// AMBER 1 light OFF
+
+		if( buffer[ 2 ] == 1 )
+			GPIO_SetBits( GPIOD, GPIO_Pin_14 );	 // AMBER 2 light ON
+		else
+			GPIO_ResetBits( GPIOD, GPIO_Pin_14 );// AMBER 2 light OFF
+
+		if( buffer[ 3 ] == 1 )
+			GPIO_SetBits( GPIOD, GPIO_Pin_15 );	 // GREEN light ON
+		else
+			GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
+	}
+
+	GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
+	GPIO_ResetBits( GPIOD, GPIO_Pin_13 );// AMBER 1 light OFF
+	GPIO_ResetBits( GPIOD, GPIO_Pin_14 );// AMBER 2 light OFF
+	GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
 }
 
 unsigned int CheckSensor( const unsigned int sensor )
