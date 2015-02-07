@@ -690,13 +690,7 @@ int main( void )
 								}
 							}
 
-							// clear the display
-							WriteLCD_Line(	SPACES, 0 );
-							WriteLCD_Line(	SPACES, 1 );
-							UpdateLCD();
-
-							// PlayDropGateAnimation(); // TODO: Implement this
-
+							PlayDropGateAnimation();
 							DropGate();
 
 							// the only reason to call this is to save the total gate drops
@@ -2456,25 +2450,26 @@ void DoReactionGame( const unsigned int player_count )
 
 void LightTestCycle( void )
 {
-	int buffer[ 4 ];
+	unsigned int buffer[ 4 ];
+
+	const float resolution = 50.0f;
 
 	float theta1 = 0.000 + 0.6f;
 	float theta2 = 0.333 + 0.6f;
 	float theta3 = 0.999 + 0.6f;
 
-	const float resolution = 50.0f;
-	float one_y = 0;
-	float two_y = 0;
+	float one_y   = 0;
+	float two_y   = 0;
 	float three_y = 0;
 
 	unsigned int i = 0;
 
-	while( theta1 < (4 * 3.14159f) + 0.6f )
+	while( theta1 < (2 * 3.14159f) + 0.999f )
 	{
 		Delay( 7 );
 
-		one_y = resolution * sin( theta1 ) + resolution;
-		two_y = resolution * sin( theta2 ) + resolution;
+		one_y   = resolution * sin( theta1 ) + resolution;
+		two_y   = resolution * sin( theta2 ) + resolution;
 		three_y = resolution * sin( theta3 ) + resolution;
 
 		theta1 += 0.0425f;
@@ -2483,11 +2478,11 @@ void LightTestCycle( void )
 
 		buffer[ 0 ] = buffer[ 1 ] = buffer[ 2 ] = buffer[ 3 ] = 0;
 
-		i = (unsigned int)( one_y / 25.0f );
+		i = (unsigned int)( one_y   / (resolution / 2.0f) );
 		buffer[ i ] = 1;
-		i = (unsigned int)( two_y / 25.0f );
+		i = (unsigned int)( two_y   / (resolution / 2.0f) );
 		buffer[ i ] = 1;
-		i = (unsigned int)( three_y / 25.0f );
+		i = (unsigned int)( three_y / (resolution / 2.0f) );
 		buffer[ i ] = 1;
 
 		if( buffer[ 0 ] == 1 )
@@ -3410,7 +3405,7 @@ void DefineCustomCharacters( void )
 	WriteLCD_Data( 0x04 ); // 7   *
 }
 
-void PlayDropGateAnimation( void )	// TODO: Figure out why subsequent writes to CGRAM fail to change custom characters
+void PlayDropGateAnimation( void )
 {
 	char D[ 8 ] = { 0x1C, 0x12, 0x11, 0x11, 0x11, 0x12, 0x1C, 0x00 };
 	char R[ 8 ] = { 0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11, 0x00 };
@@ -3422,20 +3417,53 @@ void PlayDropGateAnimation( void )	// TODO: Figure out why subsequent writes to 
 	char T[ 8 ] = { 0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x00 };
 	char E[ 8 ] = { 0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F, 0x00 };
 
-	WriteLCD_Command( 0x40 ); // Character code 0x00, start of CGRAM
-	Delay( 10 );
+	unsigned int i, j;
 
-	WriteLCD_Data( (int)D );
-	WriteLCD_Data( (int)R );
-	WriteLCD_Data( (int)O );
-	WriteLCD_Data( (int)P );
-	WriteLCD_Data( (int)G );
-	WriteLCD_Data( (int)A );
-	WriteLCD_Data( (int)T );
-	WriteLCD_Data( (int)E );
-
-	WriteLCD_Line( "\0\1\2\3 \4\5\6\7", 1 );
+	WriteLCD_Line( SPACES, 1 );
 	UpdateLCD();
+
+	for( i = 0; i < 9; i++ )
+	{
+		WriteLCD_Command( 0x40 ); // Character code 0x00, start of CGRAM
+		Delay( 40 );
+
+		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)D[ j ] );
+		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)R[ j ] );
+		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)O[ j ] );
+		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)P[ j ] );
+		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)G[ j ] );
+		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)A[ j ] );
+		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)T[ j ] );
+		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)E[ j ] );
+
+		WriteLCD_Line( "      \0\1\2\3 \4\5\6\7     ", 0 );
+		UpdateLCD();
+
+		for( j = 7; j > 0; j-- )
+		{
+			D[ j ] = D[ j - 1 ];
+			R[ j ] = R[ j - 1 ];
+			O[ j ] = O[ j - 1 ];
+			P[ j ] = P[ j - 1 ];
+			G[ j ] = G[ j - 1 ];
+			A[ j ] = A[ j - 1 ];
+			T[ j ] = T[ j - 1 ];
+			E[ j ] = E[ j - 1 ];
+		}
+
+		D[ 0 ] = 0;
+		R[ 0 ] = 0;
+		O[ 0 ] = 0;
+		P[ 0 ] = 0;
+		G[ 0 ] = 0;
+		A[ 0 ] = 0;
+		T[ 0 ] = 0;
+		E[ 0 ] = 0;
+	}
+
+	Delay( 150 );
+
+	DefineCustomCharacters();
 }
 
 void WriteLCD_Command( const int data )
