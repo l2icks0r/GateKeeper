@@ -3419,9 +3419,6 @@ void PlayDropGateAnimation( void )
 
 	unsigned int i, j;
 
-	WriteLCD_Line( SPACES, 1 );
-	UpdateLCD();
-
 	for( i = 0; i < 9; i++ )
 	{
 		WriteLCD_Command( 0x40 ); // Character code 0x00, start of CGRAM
@@ -3459,6 +3456,23 @@ void PlayDropGateAnimation( void )
 		A[ 0 ] = 0;
 		T[ 0 ] = 0;
 		E[ 0 ] = 0;
+	}
+
+	// heh, scroll the bottom line after drop gate text scrolls away
+	char line[ DISPLAY_WIDTH ] = "    Press button!   ";
+
+	for( i = 0; i < DISPLAY_WIDTH; i++ )
+	{
+		for( j = DISPLAY_WIDTH; j > 0; j-- )
+		{
+			line[ j ] = line[ j - 1 ];
+		}
+
+		line[ j - 1 ] = 0x20;
+		WriteLCD_Line( line, 1 );
+		UpdateLCD();
+
+		Delay( 20 - i );
 	}
 
 	Delay( 150 );
