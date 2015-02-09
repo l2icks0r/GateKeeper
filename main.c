@@ -20,6 +20,7 @@
 
 //#define CADENCE
 //#define NUMBERS
+//#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
 
@@ -72,7 +73,7 @@
 #include "Seconds.c"
 #include "Point.c"
 #include "VolumeAt.c"
-#include "BatteryAt.c"
+//#include "BatteryAt.c"
 #include "LastTimeWas.c"
 #include "MilesPerHour.c"
 #include "At.c"
@@ -347,9 +348,18 @@ static unsigned int Reaction_Game_P2_BEST  = 0;
 static unsigned int Reaction_Game_P2_AVG   = 0;
 static unsigned int Reaction_Game_P2_WORST = 0;
 
+#ifdef BATTERY_LOG
+// temp code to capture battery decay profile
+static unsigned int Battery_Levels[ 100 ];
+#endif
 
 int main( void )
 {
+#ifdef BATTERY_LOG
+	int i = 0;
+	for(; i < 100; i++ ) Battery_Levels[ i ] = 0;
+#endif
+
 	SystemInit();  // line 221 of system_stm32f4xx.c
 
 	StartTimers(); // system ticks
@@ -389,8 +399,8 @@ int main( void )
 		{
 			case STARTUP:
 			{
-				// do not permit usage with battery voltage at less than ~11.5vdc
-				if( BatteryLevel( 0 ) < 260000.0f )
+				// do not permit usage with battery voltage at less than ~12vdc
+				if( BatteryLevel( 0 ) < 290000.0f )
 				{
 					Device_State = RECHARGE;
 					break;
@@ -406,7 +416,7 @@ int main( void )
 
 				// write splash text
 				WriteLCD_LineCentered( "** RRP BMX GATES **", 0 );
-				WriteLCD_LineCentered( "Epicenter Prototype", 1 );
+				WriteLCD_LineCentered( "Epicenter v0.9.0", 1 );
 				UpdateLCD();
 
 				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
@@ -429,7 +439,7 @@ int main( void )
 				SetAttenuator( 0x1000 );
 				SetAttenuator( 0x0000 );
 
-				while( BatteryLevel( 1 ) < 275000.0f );
+				while( BatteryLevel( 1 ) < 310000.0f ); // don't function until battery is at least 30% charge
 
 				Device_State = STARTUP;
 				break;
@@ -451,7 +461,7 @@ int main( void )
 
 					do
 					{
-						if( ReadBatteryCondition() < 2600 )
+						if( ReadBatteryCondition() < 2900 ) // permit running battery down to 0%
 						{
 							Device_State = RECHARGE;
 							break;
@@ -462,16 +472,72 @@ int main( void )
 						{
 							float battery_level = 0;
 							int a = 0;
-							for(; a < 2000; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
-							battery_level /= 2000;
+							for(; a < 100; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
+							battery_level /= 100;
 
-							battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
+							float voltage = 11.5f + ((13.2f - 11.5f) * (((100000.0f - ( 360000.0f - battery_level )) / 1000.0f) / 100.0f)) + 0.07f;
+							int voltage_integer		= (int)voltage;
+							int voltage_fractional	= (int)(voltage * 100.0f) % 100;
+
+//							battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
+							battery_level = (70000.0f - ( 360000.0f - battery_level )) / 700.0f;
+
 							battery_level = ( battery_level > 100 ) ? 100 : battery_level;
 							battery_level = ( battery_level <   0 ) ?   0 : battery_level;
 
 							Menu_Array[ BATTERY_CONDITION ].context = (int) battery_level;
 
-							sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], "%d%%", Menu_Array[ BATTERY_CONDITION ].context );
+							if( voltage_fractional > 9 )
+								sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], "%d%% = %d.%dvdc", Menu_Array[ BATTERY_CONDITION ].context, voltage_integer, voltage_fractional );
+							else
+								sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], "%d%% = %d.0%dvdc", Menu_Array[ BATTERY_CONDITION ].context, voltage_integer, voltage_fractional );
+
+#ifdef BATTERY_LOG
+							int battery_index = 100 - (int)battery_level;
+							Battery_Levels[ battery_index ] += 1;
+
+							if( (GPIOB->IDR & 0x0080) == 0 || ( ReadBatteryCondition() < 2500 ) )
+							{
+								FLASH_Unlock();
+
+								FLASH_ClearFlag( FLASH_FLAG_EOP	   | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
+											  	 FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR| FLASH_FLAG_PGSERR );
+
+								FLASH_EraseSector( GetFlashSector( FLASH_SAVE_MEMORY_START ), VoltageRange_3 );
+
+								uint32_t write_address = FLASH_SAVE_MEMORY_START;
+
+								uint32_t *p_data = (uint32_t *) Battery_Levels;
+
+								uint32_t stop_address = write_address + (sizeof( Battery_Levels ));
+
+								for( i = 0; write_address < stop_address; i++ )
+								{
+									FLASH_Status flash_status = FLASH_ProgramWord( write_address, *p_data );
+
+									if( flash_status == FLASH_ERROR_PROGRAM )
+									{
+										WriteLCD_LineCentered( "Flash_ProgramWord", 0 );
+										WriteLCD_LineCentered( "failed", 0 );
+										UpdateLCD();
+									}
+
+									if( flash_status == FLASH_COMPLETE )
+									{
+										p_data++;
+										write_address += 4;
+									}
+								}
+
+								FLASH_Lock();
+
+								WriteLCD_LineCentered( "Battery Levels", 0 );
+								WriteLCD_LineCentered( "Saved", 1 );
+								UpdateLCD();
+
+								while(1);
+							}
+#endif
 
 							// write condition to bottom line and update the display to show new condition
 							WriteLCD_LineCentered( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], 1 );
@@ -1662,10 +1728,10 @@ int main( void )
 						case BATTERY_CONDITION:
 						{
 #ifdef NUMBERS
-							PlaySilence( 100, 0 );
-							PlaySample24khz( BatteryAtData, 0, BATTERY_AT_SIZE, 1 );
-							PlayTimeOrPercent( Menu_Array[ BATTERY_CONDITION ].context * 60 * 1000, PLAY_PERCENT );
-							InitAudio();
+//							PlaySilence( 100, 0 );
+//							PlaySample24khz( BatteryAtData, 0, BATTERY_AT_SIZE, 1 );
+//							PlayTimeOrPercent( Menu_Array[ BATTERY_CONDITION ].context * 60 * 1000, PLAY_PERCENT );
+//							InitAudio();
 #endif
 							break;
 						}
@@ -2030,7 +2096,7 @@ void DropGate( void )
 	}
 #endif
 
-	WriteLCD_LineCentered( "STARTING CADENCE", 0 );
+	WriteLCD_LineCentered( "CADENCE STARTED", 0 );
 	WriteLCD_LineCentered( SPACES, 1 );
 	UpdateLCD();
 
@@ -2134,6 +2200,10 @@ void DropGate( void )
 		Aux_2_Sensor_A_Tick = 0;
 		Aux_2_Sensor_B_Tick = 0;
 
+		WriteLCD_LineCentered( "GATE DROPPED", 0 );
+		WriteLCD_LineCentered( SPACES, 1 );
+		UpdateLCD();
+
 		PlayTone( 2250, Square632HzData, SQUARE_632HZ_SIZE, 1 );
 
 		// turn all the lights off
@@ -2159,7 +2229,16 @@ void DropGate( void )
 		for( volume = 0 ; volume < max_volume; volume += step )
 		{
 			SetAttenuator( 0x0000 | volume );
-			Delay( 60 );
+			Delay( 80 );
+
+			if( volume > count_step * 2 )
+				WriteLCD_LineCentered( "-=\1 3 \2=-", 1 );
+			else if( volume > count_step )
+				WriteLCD_LineCentered( "-=\1 2 \2=-", 1 );
+			else
+				WriteLCD_LineCentered( "-=\1 1 \2=-", 1 );
+
+		    UpdateLCD();
 		}
 	}
 #endif
@@ -2511,6 +2590,7 @@ void LightTestCycle( void )
 	GPIO_ResetBits( GPIOD, GPIO_Pin_14 );// AMBER 2 light OFF
 	GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
 }
+
 
 unsigned int CheckSensor( const unsigned int sensor )
 {
@@ -3422,7 +3502,7 @@ void PlayDropGateAnimation( void )
 	for( i = 0; i < 9; i++ )
 	{
 		WriteLCD_Command( 0x40 ); // Character code 0x00, start of CGRAM
-		Delay( 40 );
+		Delay( 30 - 2 * i );
 
 		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)D[ j ] );
 		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)R[ j ] );
@@ -3621,10 +3701,6 @@ void TIM7_IRQHandler()
 {
     TIM7->SR &= ~TIM_SR_UIF;   // interrupt has been handled
 
-    // TODO: Well this sucks, why does playing sound on this timer lock timer6?
-    // TODO: what is even the point of having two timers if they aren't independent
-    // TODO: of one another? This is just stupid. And this is just a stupid
-    // TODO: way to implement the reaction game.
     if( Start_Reaction_Timing == 0 ) return;
 
 	if( Gate_Drop_Delay != 0 )
@@ -4049,13 +4125,14 @@ float BatteryLevel( const unsigned int display_level )
 
 	Charge_Change += charge_level - Starting_Charge_Level;
 
-	battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
+//	battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
+	battery_level = (70000.0f - ( 360000.0f - battery_level )) / 1000.0f;
 	Menu_Array[ BATTERY_CONDITION ].context = ( battery_level > 100.0f ) ? 100 : (int)battery_level;
 
 	// 85% battery level is 13vdc
 
-	// recharge at battery_level == 260,000
-	if( charge_level < 260000.0f || display_level == 1 )
+	// recharge at battery_level == 290,000
+	if( charge_level < 290000.0f || display_level == 1 )
 	{
 		// write condition to bottom line and update the display to show new condition
 		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 0 );
@@ -4575,7 +4652,7 @@ void InitMenus( void )
 	Menu_Array[ BATTERY_CONDITION ].sub_context	= 0;
 	Menu_Array[ BATTERY_CONDITION ].item_count	= 1;
 	Menu_Array[ BATTERY_CONDITION ].current_item= 0;
-	SetMenuText( Menu_Array[ BATTERY_CONDITION ].caption,	"BATTERY LEVEL" );
+	SetMenuText( Menu_Array[ BATTERY_CONDITION ].caption,	"BATTERY CONDITION" );
 	sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ],	"%d%%", Menu_Array[ BATTERY_CONDITION ].context );
 
 	Menu_Array[ WIRELESS_REMOTE ].menu_type		= EDIT_CHOICE;
