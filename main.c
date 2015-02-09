@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define CADENCE
-//#define NUMBERS
+#define CADENCE
+#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -424,7 +424,7 @@ int main( void )
 
 				LightTestCycle();
 
-				Delay( 1000 );
+				Delay( 2000 );
 
 				// go to next menu
 				Device_State = WAIT_FOR_USER;
@@ -472,16 +472,14 @@ int main( void )
 						{
 							float battery_level = 0;
 							int a = 0;
-							for(; a < 100; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
-							battery_level /= 100;
+							for(; a < 300; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
+							battery_level /= 300;
 
-							float voltage = 11.5f + ((13.2f - 11.5f) * (((100000.0f - ( 360000.0f - battery_level )) / 1000.0f) / 100.0f)) + 0.07f;
+							float voltage = 11.5f + ((13.2f - 11.5f) * (((100000.0f - ( 360000.0f - battery_level )) / 1000.0f) / 100.0f)) + 0.0725f;
 							int voltage_integer		= (int)voltage;
 							int voltage_fractional	= (int)(voltage * 100.0f) % 100;
 
-//							battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
-							battery_level = (70000.0f - ( 360000.0f - battery_level )) / 700.0f;
-
+							battery_level = (70000.0f - ( 356000.0f - battery_level )) / 700.0f;
 							battery_level = ( battery_level > 100 ) ? 100 : battery_level;
 							battery_level = ( battery_level <   0 ) ?   0 : battery_level;
 
@@ -4126,7 +4124,7 @@ float BatteryLevel( const unsigned int display_level )
 	Charge_Change += charge_level - Starting_Charge_Level;
 
 //	battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
-	battery_level = (70000.0f - ( 360000.0f - battery_level )) / 1000.0f;
+	battery_level = (70000.0f - ( 356000.0f - battery_level )) / 1000.0f;
 	Menu_Array[ BATTERY_CONDITION ].context = ( battery_level > 100.0f ) ? 100 : (int)battery_level;
 
 	// 85% battery level is 13vdc
@@ -4648,7 +4646,7 @@ void InitMenus( void )
 	sprintf( Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ AUDIO_IN_VOLUME ].context );
 
 	Menu_Array[ BATTERY_CONDITION ].menu_type	= DISPLAY_VALUE;
-	Menu_Array[ BATTERY_CONDITION ].context		= 100.0f * ReadBatteryCondition() / 3600;
+	Menu_Array[ BATTERY_CONDITION ].context		= 100.0f * ReadBatteryCondition() / 3560;
 	Menu_Array[ BATTERY_CONDITION ].sub_context	= 0;
 	Menu_Array[ BATTERY_CONDITION ].item_count	= 1;
 	Menu_Array[ BATTERY_CONDITION ].current_item= 0;
