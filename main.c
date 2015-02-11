@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define CADENCE
-//#define NUMBERS
+#define CADENCE
+#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -475,12 +475,7 @@ int main( void )
 							for(; a < 300; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
 							battery_level /= 300;
 
-							float voltage 	 = 11.5f + ((13.2f - 11.5f) * (((100000.0f - ( 360000.0f - battery_level )) / 1000.0f) / 100.0f));
-
-							float adjustment = (0.0725f * ((70000.0f - ( 356000.0f - battery_level )) / 70000.0f));
-
-							voltage += adjustment;
-
+							float voltage = 11.5f + ((13.2f - 11.5f) * (((100000.0f - ( 360000.0f - battery_level )) / 1000.0f) / 100.0f)) + 0.0725f;
 							int voltage_integer		= (int)voltage;
 							int voltage_fractional	= (int)(voltage * 100.0f) % 100;
 
@@ -659,11 +654,6 @@ int main( void )
 						else Menu_Array[ CADENCE_VOLUME ].context = 10;
 
 						sprintf( Menu_Array[ CADENCE_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ CADENCE_VOLUME ].context );
-
-						char line1[ DISPLAY_WIDTH ];
-						sprintf( line1, "%d%%", Menu_Array[ CADENCE_VOLUME ].context );
-						WriteLCD_LineCentered( line1, 1 );
-						UpdateLCD();
 
 						int cadence_volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
 
