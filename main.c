@@ -18,9 +18,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define CADENCE
-#define NUMBERS
-#define BATTERY_LOG
+//#define CADENCE
+//#define NUMBERS
+//#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
 
@@ -188,10 +188,6 @@ uint32_t GetFlashSector( uint32_t Address );
 // startup light test
 void LightTestCycle( void );
 
-// checks to see if MCU should go into power saving mode
-void GetOutOfPowerSavingMode( void );
-
-
 
 enum INPUTS { 	BUTTON_A 		= 0x0001,
 				BUTTON_B 		= 0x0010,
@@ -305,9 +301,6 @@ struct TIMING_DEFINITION
 // maximum time to wait between speed sensors
 #define SENSOR_TIMEOUT_PERIOD	15000	// wait 1.5 seconds after speed sensor has triggered
 
-// start power save mode after 5 minutes of no activity
-#define POWER_SAVER_TIMEOUT	30 * 10000 // 5 * 60 * 10000
-
 // reserve memory to store all menus
 static struct MENU_DEFINITION Menu_Array[ MENUS_SIZE ];
 
@@ -343,7 +336,6 @@ static unsigned int Aux_2_Sensor_Spacing = 0;
 // battery related
 static float Starting_Charge_Level = 0.0f;
 static float Charge_Change 		   = 0.0f;
-static unsigned int Power_Saver_Timer = 0; // power savings timer used to go turn off amplifier
 
 // reaction game
 static unsigned int Start_Reaction_Timing  = 0;
@@ -415,12 +407,12 @@ int main( void )
 				}
 
 				// initialize attenuator
-				SetAttenuator( 0x41FF );			// write TCON (enable all)
-				SetAttenuator( 0x1000 | 50 );		// write pot 1 (pot 1 = STM32 audio)
-				SetAttenuator( 0x1000 | 50 );		// write pot 1 (pot 1 = STM32 audio)
+				SetAttenuator( 0x41FF );		// write TCON (enable all)
+				SetAttenuator( 0x1000 | 50 );	// write pot 1 (pot 1 = STM32 audio)
+				SetAttenuator( 0x1000 | 50 );	// write pot 1 (pot 1 = STM32 audio)
 				SetAttenuator( 0x0000 | (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100 ); // write pot 0 (pot 0 = aux in audio)
 
-				GPIO_SetBits( GPIOC, GPIO_Pin_0 );	// Turn amplifier on
+				GPIO_SetBits( GPIOC, GPIO_Pin_0 );
 
 				// write splash text
 				WriteLCD_LineCentered( "** RRP BMX GATES **", 0 );
@@ -507,7 +499,7 @@ int main( void )
 							int battery_index = 100 - (int)battery_level;
 							Battery_Levels[ battery_index ] += 1;
 
-							if( (GPIOB->IDR & 0x0080) == 0 || ( ReadBatteryCondition() < 2590 ) )
+							if( (GPIOB->IDR & 0x0080) == 0 || ( ReadBatteryCondition() < 2500 ) )
 							{
 								FLASH_Unlock();
 
@@ -3711,17 +3703,10 @@ void StartTimers( void )
     TIM7->CR1 		|= TIM_CR1_CEN;             // Enable TIM7 counter
 }
 
+
 void TIM7_IRQHandler()
 {
     TIM7->SR &= ~TIM_SR_UIF;   // interrupt has been handled
-
-    Power_Saver_Timer += 1;
-
-    // put amplifier into standby mode after 5 minutes of inactivity
-    if( Power_Saver_Timer > POWER_SAVER_TIMEOUT )
-    {
-    	GPIO_ResetBits( GPIOC, GPIO_Pin_0 );	// put amplifier in standby mode
-    }
 
     if( Start_Reaction_Timing == 0 ) return;
 
@@ -3930,14 +3915,14 @@ void PlayTone( const unsigned int milliseconds, const int16_t * tone_data, const
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
 
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
 
 		if ( (i - 6) < 0 ) scale *= 4;
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
 
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
 	}
 	while( i-- > 0 && !(Cadence_Cancelled == 1 && dont_abort == 0) );
 }
@@ -3955,27 +3940,27 @@ void PlaySample16khz( const int16_t * pSampleData, const unsigned int start, con
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
 	}
 }
 
@@ -3995,19 +3980,19 @@ void PlaySample24khz( const int16_t * pSampleData, const unsigned int start, con
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData( CODEC_I2S, previous + ((sample - previous) / 2) );	// output left
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData( CODEC_I2S, previous + ((sample - previous) / 2) );	// output right
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
 	}
 }
 
@@ -4057,18 +4042,6 @@ void PlayGateUpTones( void )
 	InitAudio();
 }
 
-void GetOutOfPowerSavingMode( void )
-{
-	if( Power_Saver_Timer > POWER_SAVER_TIMEOUT )
-	{
-		Power_Saver_Timer = 0;
-
-		GPIO_SetBits( GPIOC, GPIO_Pin_0 );	// take amplifier out of standby mode
-
-		Delay( 500 ); // wait 1/2 second to let amplifier initialize sounds don't get cut off at the start
-	}
-}
-
 static int16_t prev = 0xFFFF;
 static int16_t last_index = 0;
 
@@ -4079,64 +4052,16 @@ int ReadInputs( int * inputs )
 	const unsigned int PortD_IDR = GPIOD->IDR;
 
 	// check for timer sensors
-	if( (PortB_IDR & 0x0080) == 0 )
-	{
-		*inputs = AUX_1_SENSOR_A;
-
-		GetOutOfPowerSavingMode();
-		return 0;
-	}
-	if( (PortB_IDR & 0x0100) == 0 )
-	{
-		*inputs = AUX_1_SENSOR_B;
-
-		GetOutOfPowerSavingMode();
-		return 0;
-	}
-	if( (PortB_IDR & 0x0010) == 0 )
-	{
-		*inputs = AUX_2_SENSOR_A;
-
-		GetOutOfPowerSavingMode();
-		return 0;
-	}
-	if( (PortB_IDR & 0x0020) == 0 )
-	{
-		*inputs = AUX_2_SENSOR_B;
-
-		GetOutOfPowerSavingMode();
-		return 0;
-	}
+	if( (PortB_IDR & 0x0080) == 0 ) { *inputs = AUX_1_SENSOR_A; return 0; }
+	if( (PortB_IDR & 0x0100) == 0 ) { *inputs = AUX_1_SENSOR_B; return 0; }
+	if( (PortB_IDR & 0x0010) == 0 ) { *inputs = AUX_2_SENSOR_A; return 0; }
+	if( (PortB_IDR & 0x0020) == 0 ) { *inputs = AUX_2_SENSOR_B; return 0; }
 
 	// check for RF remote buttons
-	if( PortA_IDR & 0x0001 )
-	{
-		*inputs = BUTTON_A;
-
-		GetOutOfPowerSavingMode();
-		return 0;
-	}
-	if( PortB_IDR & 0x4000 )
-	{
-		*inputs = BUTTON_B;
-
-		GetOutOfPowerSavingMode();
-		return 0;
-	}
-	if( PortB_IDR & 0x8000 )
-	{
-		*inputs = BUTTON_C;
-
-		GetOutOfPowerSavingMode();
-		return 0;
-	}
-	if( PortD_IDR & 0x0100 )
-	{
-		*inputs = BUTTON_D;
-
-		GetOutOfPowerSavingMode();
-		return 0;
-	}
+	if( PortA_IDR & 0x0001 ) { *inputs = BUTTON_A; return 0; }
+	if( PortB_IDR & 0x4000 ) { *inputs = BUTTON_B; return 0; }
+	if( PortB_IDR & 0x8000 ) { *inputs = BUTTON_C; return 0; }
+	if( PortD_IDR & 0x0100 ) { *inputs = BUTTON_D; return 0; }
 
 	int16_t current_index = 0;
 
@@ -4148,8 +4073,6 @@ int ReadInputs( int * inputs )
 		if ( 0x0000 == (prev & 0x0010) )
 		{
 			*inputs = BUTTON_E;
-
-			GetOutOfPowerSavingMode();
 			return 0;
 		}
 		else
@@ -4209,6 +4132,7 @@ float BatteryLevel( const unsigned int display_level )
 
 	Charge_Change += charge_level - Starting_Charge_Level;
 
+//	battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
 	battery_level = (70000.0f - ( 356000.0f - battery_level )) / 1000.0f;
 	Menu_Array[ BATTERY_CONDITION ].context = ( battery_level > 100.0f ) ? 100 : (int)battery_level;
 
@@ -4810,9 +4734,7 @@ void SaveEverythingToFlashMemory( void )
 		// device voltage range supposed to be [2.7V to 3.6V], the operation will be done by word
 		if( FLASH_EraseSector( i, VoltageRange_3 ) != FLASH_COMPLETE )
 		{
-			WriteLCD_LineCentered( "Failed to erase", 0 );
-			WriteLCD_LineCentered( "flash memory", 0 );
-			UpdateLCD();
+			// TODO: add code to handle the case when erasing a sector fails
 		}
 	}
 
