@@ -674,6 +674,7 @@ int main( void )
 						PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
 						InitAudio();
 #endif
+						break;
 					}
 					else if( inputs != 0 )	// handle encoder interface
 					{
