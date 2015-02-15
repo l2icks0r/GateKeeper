@@ -2,7 +2,7 @@ OUTPUT_FORMAT ("elf32-littlearm", "elf32-bigarm", "elf32-littlearm")
 /* Internal Memory Map*/
 MEMORY
 {
-	boot (rx)			: ORIGIN = 0x08000000, LENGTH = 16K
+	bootay (rx)			: ORIGIN = 0x08000000, LENGTH = 16K
 	flash_allocate (rx) : ORIGIN = 0x08004000, LENGTH = 16K
 	rom (rx)			: ORIGIN = 0x08008000, LENGTH = 992K
 	
@@ -18,13 +18,13 @@ SECTIONS
 		. = ALIGN(4);
 		KEEP(*(.isr_vector))
 		. = ALIGN(4);
-	} >boot
+	} >bootay
 
     .flash_reserve :
     {
-    . = ALIGN(4);
-        *(.flash_reserve)
-    . = ALIGN(4);
+		. = ALIGN(4);
+		*(.flash_reserve)
+		. = ALIGN(4);
     } >flash_allocate
 
 	.text :
