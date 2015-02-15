@@ -18,9 +18,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define CADENCE
-//#define NUMBERS
-//#define BATTERY_LOG
+#define CADENCE
+#define NUMBERS
+// #define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
 
@@ -400,10 +400,10 @@ int main( void )
 			case STARTUP:
 			{
 				// do not permit usage with battery voltage at less than ~12vdc
-				if( BatteryLevel( 0 ) < 290000.0f )
+//				if( BatteryLevel( 0 ) < 290000.0f )
 				{
-					Device_State = RECHARGE;
-					break;
+//					Device_State = RECHARGE;
+//					break;
 				}
 
 				// initialize attenuator
@@ -433,13 +433,13 @@ int main( void )
 
 			case RECHARGE:
 			{
-				Starting_Charge_Level = 0;
-				Charge_Change = 0;
-
-				SetAttenuator( 0x1000 );
-				SetAttenuator( 0x0000 );
-
-				while( BatteryLevel( 1 ) < 310000.0f ); // don't function until battery is at least 30% charge
+//				Starting_Charge_Level = 0;
+//				Charge_Change = 0;
+//
+	//			SetAttenuator( 0x1000 );
+		//		SetAttenuator( 0x0000 );
+//
+	//			while( BatteryLevel( 1 ) < 310000.0f ); // don't function until battery is at least 30% charge
 
 				Device_State = STARTUP;
 				break;
@@ -463,8 +463,8 @@ int main( void )
 					{
 						if( ReadBatteryCondition() < 2900 ) // permit running battery down to 0%
 						{
-							Device_State = RECHARGE;
-							break;
+		//					Device_State = RECHARGE;
+			//				break;
 						}
 
 						// update battery condition in realtime if battery condition menu is the current menu being displayed
@@ -496,10 +496,12 @@ int main( void )
 								sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], "%d%% = %d.0%dvdc", Menu_Array[ BATTERY_CONDITION ].context, voltage_integer, voltage_fractional );
 
 #ifdef BATTERY_LOG
-							int battery_index = 100 - (int)battery_level;
-							Battery_Levels[ battery_index ] += 1;
+							Battery_Levels[ battery_level ] += 1;
 
-							if( (GPIOB->IDR & 0x0080) == 0 || ( ReadBatteryCondition() < 2500 ) )
+							if( (int) battery_level > Battery_Levels[ battery_index ]  )
+								Battery_Levels[ battery_index ] = (int) battery_level;
+
+							if( (GPIOB->IDR & 0x0080) == 0 || ( ReadBatteryCondition() < 2600 ) )
 							{
 								FLASH_Unlock();
 
@@ -662,6 +664,7 @@ int main( void )
 
 						char line1[ DISPLAY_WIDTH ];
 						sprintf( line1, "%d%%", Menu_Array[ CADENCE_VOLUME ].context );
+						WriteLCD_LineCentered( "CADENCE VOLUME", 0 );
 						WriteLCD_LineCentered( line1, 1 );
 						UpdateLCD();
 
