@@ -209,6 +209,8 @@ enum MENUS	   { DROP_GATE = 0,
 				 GATE_START_WARNING,
 				 GATE_DROPS_ON,
 
+				 AUTO_ANNOUNCE_TIMES,
+
 				 AUX_1_CONFIG,
 				 AUX_2_CONFIG,
 
@@ -218,6 +220,7 @@ enum MENUS	   { DROP_GATE = 0,
 				 REACTION_GAME,
 
 				 TOTAL_GATE_DROPS,
+//				 CLEAR_TOTAL_GATE_DROPS,
 
 				 CADENCE_VOLUME,
 				 AUDIO_IN_VOLUME,
@@ -230,10 +233,11 @@ enum MENUS	   { DROP_GATE = 0,
 
 				 MENUS_SIZE };
 
-enum AUX_OPTIONS			{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SPRINT_TIMER = 4, AUX_GATE_SWITCH = 5, AUX_SENSOR_SPACING = 6, AUX_SENSOR_TYPE = 7, AUX_LAP_COUNT = 8 };
-enum REACTION_GAME_OPTIONS	{ REACTION_GAME_ONE_PLAYER = 1, REACTION_GAME_TWO_PLAYER = 2, REACTION_GAME_VIEW_STATS = 3, REACTION_GAME_CLEAR_STATS = 4 };
-enum WIRELESS_REMOTE_OPTIONS{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
-enum RELEASE_DEVICE_OPTIONS { RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
+enum AUX_OPTIONS				{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SPRINT_TIMER = 4, AUX_GATE_SWITCH = 5, AUX_SENSOR_SPACING = 6, AUX_SENSOR_TYPE = 7, AUX_LAP_COUNT = 8 };
+enum REACTION_GAME_OPTIONS		{ REACTION_GAME_ONE_PLAYER = 1, REACTION_GAME_TWO_PLAYER = 2, REACTION_GAME_VIEW_STATS = 3, REACTION_GAME_CLEAR_STATS = 4 };
+enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNCE_TIMES_ENABLED = 2 };
+enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
+enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
 
 // sub-menu options for auxiliary sensor type
 enum SENSOR_OPTIONS			{ RIBBON_SWITCH = 0, INFRARED = 1, LASER = 2, PROXIMITY = 3, WIRELESS = 4, SENSOR_OPTIONS_SIZE = 5 };
@@ -1064,6 +1068,47 @@ int main( void )
 							break;
 						}
 
+						case AUTO_ANNOUNCE_TIMES:
+						{
+							while( 1 )
+							{
+								WriteLCD_LineCentered( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ Menu_Array[ AUTO_ANNOUNCE_TIMES ].context ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( &inputs, 0 );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									int new_value = Menu_Array[ AUTO_ANNOUNCE_TIMES ].context + encoder_delta;
+
+									if( new_value >= 1 && new_value <= 2 )
+										Menu_Array[ AUTO_ANNOUNCE_TIMES ].context = new_value;
+
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								ItemCopy( AUTO_ANNOUNCE_TIMES, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context, 0, 1 );
+								WriteLCD_LineCentered( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs, 0 );
+								inputs = 0;
+
+								break;
+							}
+							break;
+
+						}
+
 						case AUX_1_CONFIG:
 						case AUX_2_CONFIG:
 						{
@@ -1246,7 +1291,9 @@ int main( void )
 								}
 								else if( Menu_Array[ menu_index ].context == AUX_SPRINT_TIMER )
 								{
+									Timing_Active = 1;
 									DoSprintTimer( menu_index );
+									Timing_Active = 0;
 
 									WaitForButtonUp();
 
@@ -1872,6 +1919,64 @@ int main( void )
 							break;
 						}
 
+/*
+						case CLEAR_TOTAL_GATE_DROPS:
+						{
+							if( Timer_History_Index != 0 )
+							{
+								WriteLCD_LineCentered( "Are you sure?", 0 );
+								WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
+								UpdateLCD();
+
+								while( 1 )
+								{
+									// wait for input
+									do
+									{	encoder_delta = ReadInputs( &inputs, 0 );
+
+									} while ( encoder_delta == 0 && inputs == 0 );
+
+									if( encoder_delta == -1 )
+									{
+										Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context = 1;
+										WriteLCD_LineCentered( "\1 YES \2/ no", 1 );
+										UpdateLCD();
+									}
+									else if( encoder_delta == 1 )
+									{
+										Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context = 0;
+										WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
+										UpdateLCD();
+									}
+
+									if( inputs == BUTTON_E )
+									{
+										if( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context > 0 )
+										{
+											SetMenuText( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].item[ 0 ], "0" );
+
+											Menu_Array[ TOTAL_GATE_DROPS ].context = 0;
+
+											SaveEverythingToFlashMemory();
+											ReadInputs( &inputs, 0 );
+											inputs = 0;
+
+											WriteLCD_LineCentered( "TOTAL GATE DROPS", 0 );
+											WriteLCD_LineCentered( "Zeroed", 1 );
+											UpdateLCD();
+
+											Delay( 2000 );
+											menu_index = TOTAL_GATE_DROPS;
+										}
+										break;
+									}
+									continue;
+								}
+							}
+							break;
+						}
+*/
+
 						case RELEASE_DEVICE:
 						{
 							while( 1 )
@@ -2017,15 +2122,18 @@ int main( void )
 								GetTimeString( sensor_1, top_line );
 								AddTimeToTimerHistory( AUX_1_CONFIG, sensor_1, top_line );
 #ifdef NUMBERS
-								PlaySilence( 100, 1 );
-								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
-								PlayDigit( 1 );
-								PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+								if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+								{
+									PlaySilence( 100, 1 );
+									PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+									PlayDigit( 1 );
+									PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
 
-								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
-								PlayDigit( 2 );
-								PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
-								InitAudio();
+									PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+									PlayDigit( 2 );
+									PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
+									InitAudio();
+								}
 #endif
 							}
 							else
@@ -2036,15 +2144,18 @@ int main( void )
 								GetTimeString( sensor_2, top_line );
 								AddTimeToTimerHistory( AUX_2_CONFIG, sensor_2, top_line );
 #ifdef NUMBERS
-								PlaySilence( 100, 1 );
-								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
-								PlayDigit( 1 );
-								PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
+								if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+								{
+									PlaySilence( 100, 1 );
+									PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+									PlayDigit( 1 );
+									PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
 
-								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
-								PlayDigit( 2 );
-								PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
-								InitAudio();
+									PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+									PlayDigit( 2 );
+									PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+									InitAudio();
+								}
 #endif
 							}
 
@@ -2948,10 +3059,13 @@ int DoTimeAndDisabled( const unsigned int aux_config, unsigned int sensor_A, uns
 
 	// say elapsed time
 #ifdef CADENCE
-	PlaySilence( 100, 0 );
-	PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
-	PlaySilence( 1, 0 );
-	InitAudio();
+	if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+	{
+		PlaySilence( 100, 0 );
+		PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+		PlaySilence( 1, 0 );
+		InitAudio();
+	}
 #endif
 
 	Delay( 2000 );
@@ -3245,15 +3359,18 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 					WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
 					UpdateLCD();
 
-	#ifdef NUMBERS
-					PlaySilence( 100, 1 );
-					PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
-					PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+#ifdef NUMBERS
+					if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+					{
+						PlaySilence( 100, 1 );
+						PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
+						PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
 
-					PlaySample24khz( AtData, 0, AT_SIZE, 1 );
-					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
-					InitAudio();
-	#endif
+						PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+						PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+						InitAudio();
+					}
+#endif
 				}
 				else
 				{
@@ -3261,10 +3378,13 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 					WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
 					UpdateLCD();
 
-	#ifdef NUMBERS
-					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
-					InitAudio();
-	#endif
+#ifdef NUMBERS
+					if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+					{
+						PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+						InitAudio();
+					}
+#endif
 				}
 
 				Delay( 2000 );
@@ -4768,6 +4888,19 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].caption, "TOTAL GATE DROPS" );
 	sprintf( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "%d", Menu_Array[ TOTAL_GATE_DROPS ].context );
 
+	/*
+	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].menu_type		= VIEW_LIST;
+	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context		= 0;
+	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].sub_context_1	= 0;
+	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].sub_context_2	= 0;
+	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].sub_context_3	= 0;
+	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].item_count	= 1;
+	Menu_Array[ CLEAR_TIMER_HISTORY ].current_item	= 0;
+	SetMenuText( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].caption,   "ZERO GATE DROP COUNT" );
+	SetMenuText( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
+	ItemCopy( CLEAR_TOTAL_GATE_DROPS, Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context, 0, 1 );
+	*/
+
 	Menu_Array[ GATE_START_DELAY ].menu_type	= EDIT_VALUE;
 	Menu_Array[ GATE_START_DELAY ].context		= 0;
 	Menu_Array[ GATE_START_DELAY ].sub_context_1= 0;
@@ -4797,6 +4930,19 @@ void InitMenus( void )
 	Menu_Array[ GATE_DROPS_ON ].current_item	= 0;
 	SetMenuText( Menu_Array[ GATE_DROPS_ON ].caption, "GATE DROPS ON" );
 	sprintf( Menu_Array[ GATE_DROPS_ON ].item[ 0 ],	  "Green" );
+
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].menu_type		= EDIT_CHOICE;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].context 		= AUTO_ANNOUNCE_TIMES_ENABLED;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_1 = 0;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_2 = 0;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_3 = 0;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].item_count	= 2;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].current_item	= 1;
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].caption,	  "AUTO ANNOUNCE TIMES" );
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ], SPACES );
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_DISABLED ], "\1 Disabled \2" );
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_ENABLED ] , "\1 Enabled \2" );
+	ItemCopy( AUTO_ANNOUNCE_TIMES, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context, 0, 1 );
 
 	// sub menu text for auxiliary sensor type options
 	strcpy( Sensor_Text[ RIBBON_SWITCH ],	"\1 Ribbon Switch \2" );
@@ -5055,6 +5201,10 @@ void SaveEverythingToFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ GATE_DROPS_ON ].item[ 0 ][ i ] );
 
+	FLASH_ProgramWord( write_address, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context  );	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ][ i ] );
+
 	FLASH_ProgramWord( write_address, Menu_Array[ AUX_1_CONFIG ].context	 );		write_address += 4;
 	FLASH_ProgramWord( write_address, Menu_Array[ AUX_1_CONFIG ].sub_context_1 );	write_address += 4;
 	FLASH_ProgramWord( write_address, Menu_Array[ AUX_1_CONFIG ].sub_context_2 );	write_address += 4;
@@ -5142,6 +5292,10 @@ void ReadEverythingFromFlashMemory( void )
 	Menu_Array[ GATE_DROPS_ON ].context		= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ GATE_DROPS_ON ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 
 	Menu_Array[ AUX_1_CONFIG ].context			= *(volatile uint32_t*)read_address; read_address += 4;
 	Menu_Array[ AUX_1_CONFIG ].sub_context_1	= *(volatile uint32_t*)read_address; read_address += 4;
