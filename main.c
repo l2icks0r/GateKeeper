@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define CADENCE
-//#define NUMBERS
+#define CADENCE
+#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -119,7 +119,7 @@ float BatteryLevel		  ( const unsigned int display_level );
 void InitMenus( void );
 void ItemCopy( const unsigned int menu, const unsigned int source_index, const unsigned int dest_index, const unsigned int no_indicators );
 void SetMenuText( char * menu, const char * text );
-int  ReadInputs( int * inputs );
+int  ReadInputs( int * inputs, int read_sensors );
 void WaitForButtonUp();
 
 // audio
@@ -306,6 +306,9 @@ struct TIMING_DEFINITION
 // maximum time to wait between speed sensors
 #define SENSOR_TIMEOUT_PERIOD	15000	// wait 1.5 seconds after speed sensor has triggered
 
+// delay to wait before reading a sensor again after target has passed through when counting more than one lap
+#define SENSOR_RESCAN_DELAY 	20000	// wait 2.0 seconds after target trips sensor
+
 // reserve memory to store all menus
 static struct MENU_DEFINITION Menu_Array[ MENUS_SIZE ];
 
@@ -331,6 +334,8 @@ static unsigned int Solenoid_Pulse_Time = 0;
 static unsigned int Turn_Magnet_Off		= 0;
 static unsigned int Magnet_On 			= 0;
 
+static unsigned int Timing_Active		= 0;
+
 // sensor ticks set by timer 6 and cleared in DropGate()
 static unsigned int Aux_1_Sensor_A_Tick = 0;
 static unsigned int Aux_1_Sensor_B_Tick = 0;
@@ -341,12 +346,17 @@ static unsigned int Aux_2_Sensor_B_Tick = 0;
 static unsigned int Aux_1_Sensor_Spacing = 0;
 static unsigned int Aux_2_Sensor_Spacing = 0;
 
-static unsigned int Aux_1_Sensor_Type 	 = 0;
-static unsigned int Aux_2_Sensor_Type 	 = 0;
+// counter for number of times that auxiliary is polled
+static unsigned int Aux_1_Infrared_Poll	 = 0;
+static unsigned int Aux_2_Infrared_Poll	 = 0;
 
-static unsigned int Aux_1_Lap_Count		 = 0;
-static unsigned int Aux_2_Lap_Count		 = 0;
+// counter to compare against the number of laps that is set in UI
+static unsigned int Aux_1_Lap_Counter	 = 0;
+static unsigned int Aux_2_Lap_Counter	 = 0;
 
+// amount of time to wait after a sensor has been tripped (used for lap mode)
+static unsigned int Aux_1_Rescan_Delay	 = 0;
+static unsigned int Aux_2_Rescan_Delay	 = 0;
 
 // battery related
 static float Starting_Charge_Level = 0.0f;
@@ -362,6 +372,7 @@ static unsigned int Reaction_Game_P1_WORST = 0;
 static unsigned int Reaction_Game_P2_BEST  = 0;
 static unsigned int Reaction_Game_P2_AVG   = 0;
 static unsigned int Reaction_Game_P2_WORST = 0;
+
 
 #ifdef BATTERY_LOG
 // temp code to capture battery decay profile
@@ -403,8 +414,8 @@ int main( void )
 	static int menu_index = 0;
 
 	// called to ignore first result which is false
-	ReadInputs( & inputs );
-	ReadInputs( & inputs );
+	ReadInputs( & inputs, 1 );
+	ReadInputs( & inputs, 1 );
 
 
 	// the one and only main loop
@@ -563,7 +574,10 @@ int main( void )
 						}
 
 						// check for any input being triggered, only returns one result
-						encoder_delta = ReadInputs( &inputs );
+						encoder_delta = ReadInputs( &inputs, 0 );
+
+						if( inputs == AUX_1_SENSOR_A || inputs == AUX_1_SENSOR_B || inputs == AUX_2_SENSOR_A || inputs == AUX_2_SENSOR_B )
+							inputs = 0;
 
 						// if no input then there is nothing to do
 						if( encoder_delta == 0 && inputs == 0 ) continue;
@@ -771,7 +785,7 @@ int main( void )
 										warning_played = 1;
 									}
 #endif
-									ReadInputs( &inputs );
+									ReadInputs( &inputs, 0 );
 
 									// bypass delay if encoder wheel button
 									if( inputs == BUTTON_E  )
@@ -784,7 +798,7 @@ int main( void )
 
 							// the only reason to call this is to save the total gate drops
 							SaveEverythingToFlashMemory();
-							ReadInputs( &inputs );
+							ReadInputs( &inputs, 0 );
 							inputs = 0;
 
 							// display timing infos if either AUX port is set to measure time
@@ -849,7 +863,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -932,7 +946,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
-								ReadInputs( &inputs );
+								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
 								break;
@@ -1008,7 +1022,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1042,7 +1056,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
-								ReadInputs( &inputs );
+								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
 								break;
@@ -1060,7 +1074,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1103,7 +1117,7 @@ int main( void )
 
 										// read controls
 										do
-										{	encoder_delta = ReadInputs( &inputs );
+										{	encoder_delta = ReadInputs( &inputs, 0 );
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1115,11 +1129,6 @@ int main( void )
 											if( new_value >= 0 && new_value < SENSOR_OPTIONS_SIZE )
 											{
 												Menu_Array[ menu_index ].sub_context_2 = new_value;
-
-												if( menu_index == AUX_1_CONFIG )
-													Aux_1_Sensor_Type = new_value;
-												else
-													Aux_2_Sensor_Type = new_value;
 											}
 
 											continue;
@@ -1133,7 +1142,7 @@ int main( void )
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs );
+										ReadInputs( &inputs, 0 );
 										inputs = 0;
 
 										break;
@@ -1153,7 +1162,7 @@ int main( void )
 
 										// read controls
 										do
-										{	encoder_delta = ReadInputs( &inputs );
+										{	encoder_delta = ReadInputs( &inputs, 0 );
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1183,7 +1192,7 @@ int main( void )
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs );
+										ReadInputs( &inputs, 0 );
 										inputs = 0;
 
 										break;
@@ -1203,7 +1212,7 @@ int main( void )
 
 										// read controls
 										do
-										{	encoder_delta = ReadInputs( &inputs );
+										{	encoder_delta = ReadInputs( &inputs, 0 );
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1215,11 +1224,6 @@ int main( void )
 											if( new_value >= 0 )
 											{
 												Menu_Array[ menu_index ].sub_context_3 = new_value;
-
-												if( menu_index == AUX_1_CONFIG )
-													Aux_1_Lap_Count = new_value;
-												else
-													Aux_2_Lap_Count = new_value;
 											}
 
 											continue;
@@ -1233,7 +1237,7 @@ int main( void )
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs );
+										ReadInputs( &inputs, 0 );
 										inputs = 0;
 
 										break;
@@ -1260,7 +1264,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
-								ReadInputs( &inputs );
+								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
 								break;
@@ -1442,7 +1446,7 @@ int main( void )
 
 								// wait for input
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1483,7 +1487,7 @@ int main( void )
 								{
 									// wait for input
 									do
-									{	encoder_delta = ReadInputs( &inputs );
+									{	encoder_delta = ReadInputs( &inputs, 0 );
 
 									} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1511,7 +1515,7 @@ int main( void )
 
 											ClearTimingHistories();
 											SaveEverythingToFlashMemory();
-											ReadInputs( &inputs );
+											ReadInputs( &inputs, 0 );
 											inputs = 0;
 
 											WriteLCD_LineCentered( "Timing Histories", 0 );
@@ -1538,7 +1542,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 1 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1616,7 +1620,7 @@ int main( void )
 									UpdateLCD();
 
 									do
-									{	encoder_delta = ReadInputs( &inputs );
+									{	encoder_delta = ReadInputs( &inputs, 0 );
 
 									} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1649,7 +1653,7 @@ int main( void )
 									{
 										// wait for input
 										do
-										{	encoder_delta = ReadInputs( &inputs );
+										{	encoder_delta = ReadInputs( &inputs, 0 );
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1681,7 +1685,7 @@ int main( void )
 												Reaction_Game_P2_WORST = 0;
 
 // TODO: comment this back in for SMT version	SaveEverythingToFlashMemory();
-												ReadInputs( &inputs );
+												ReadInputs( &inputs, 0 );
 												inputs = 0;
 
 												WriteLCD_LineCentered( Menu_Array[ REACTION_GAME ].caption, 0 );
@@ -1713,7 +1717,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1751,7 +1755,7 @@ int main( void )
 							InitAudio();
 #endif
 							SaveEverythingToFlashMemory();
-							ReadInputs( &inputs );
+							ReadInputs( &inputs, 0 );
 							inputs = 0;
 
 							break;
@@ -1768,7 +1772,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1798,7 +1802,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
-								ReadInputs( &inputs );
+								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
 								break;
@@ -1816,7 +1820,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1839,7 +1843,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
-								ReadInputs( &inputs );
+								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
 								break;
@@ -1877,7 +1881,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1910,7 +1914,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
-								ReadInputs( &inputs );
+								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
 								break;
@@ -1947,7 +1951,7 @@ int main( void )
 
 				do
 				{
-					ReadInputs( &inputs );
+					ReadInputs( &inputs, 1 );
 
 					// return a time if there is one from being tripped
 					unsigned int sensor_1A = CheckSensor( AUX_1_SENSOR_A );
@@ -2149,7 +2153,7 @@ int main( void )
 				if( Cancel_Timing != 1 )
 				{
 					SaveEverythingToFlashMemory();
-					ReadInputs( &inputs );
+					ReadInputs( &inputs, 0 );
 					inputs = 0;
 				}
 
@@ -2166,6 +2170,8 @@ int main( void )
 
 					Delay( 3000 );
 				}
+
+				Timing_Active = 0;
 
 				// go to main menu
 				Device_State = WAIT_FOR_USER;
@@ -2317,11 +2323,20 @@ void DropGate( void )
 		// reset system ticks, will be displayed for timing and used with delays
 		Timer6_Tick 		= 0;
 
+		Aux_1_Infrared_Poll = 0;
+		Aux_2_Infrared_Poll = 0;
+
 		// initialize the sensors so the tick value is set only once from the timer 6 interrupt
 		Aux_1_Sensor_A_Tick = 0;
 		Aux_1_Sensor_B_Tick = 0;
 		Aux_2_Sensor_A_Tick = 0;
 		Aux_2_Sensor_B_Tick = 0;
+
+		// clear lap counters
+		Aux_1_Lap_Counter	= 0;
+		Aux_2_Lap_Counter	= 0;
+
+		Timing_Active		= 1;
 
 		WriteLCD_LineCentered( "GATE DROPPED", 0 );
 		WriteLCD_LineCentered( SPACES, 1 );
@@ -2330,7 +2345,7 @@ void DropGate( void )
 		PlayTone( 2250, Square632HzData, SQUARE_632HZ_SIZE, 1 );
 
 		// turn all the lights off
-		GPIO_ResetBits( GPIOD, GPIO_Pin_12 | GPIO_Pin_13| GPIO_Pin_14| GPIO_Pin_15 );
+		GPIO_ResetBits( GPIOD, GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15 );
 
 		// update gate drop counter
 		Menu_Array[ TOTAL_GATE_DROPS ].context += 1;
@@ -2641,7 +2656,7 @@ void DoReactionGame( const unsigned int player_count )
 		int inputs = 0;
 
 		do
-		{	ReadInputs( &inputs );
+		{	ReadInputs( &inputs, 1 );
 
 		} while( inputs == 0 );
 
@@ -3118,7 +3133,7 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 
 	do
 	{
-		ReadInputs( & inputs );
+		ReadInputs( & inputs, 1 );
 
 		// reassign based on which is actually AUX 1, AUX 2
 		if( aux_config == AUX_1_CONFIG )
@@ -3312,9 +3327,7 @@ void AddTimeToTimerHistory( const unsigned int aux_config, const unsigned int el
 	Timer_History[ 0 ].aux_port			= aux_config;
 
 	// copy timer strings to timer history index 0 since entire array has scrolled down
-	const int length = strlen( time_string ) > DISPLAY_WIDTH ? DISPLAY_WIDTH : strlen( time_string );
-	int i;
-	for( i = 0; i < length; i++ ) Timer_History[ 0 ].time_string[ i ] = time_string[ i ];
+	strcpy( Timer_History[ 0 ].time_string, time_string );
 
 	// update menu text
 	SetMenuText( Menu_Array[ TIMER_HISTORY ].item[ 0 ], Timer_History[ 0 ].time_string );
@@ -3850,47 +3863,95 @@ void TIM7_IRQHandler()
 	}
 }
 
-static unsigned int counter = 0;
-
 void TIM6_DAC_IRQHandler()
 {
     TIM6->SR &= ~TIM_SR_UIF;   // interrupt has been handled
 
 	Timer6_Tick += 1;
 
-/*
-	int a = (GPIOB->IDR & 0x0080);
-	int b = (GPIOB->IDR & 0x0100);
+	if( Timing_Active == 1 )
+	{
+		if( Menu_Array[ AUX_1_CONFIG ].sub_context_2 == INFRARED )
+		{
+			// if beam was tripped make sure to wait before scanning again while target moves through the beam
+			if( Aux_1_Rescan_Delay > 0 )
+			{
+				Aux_1_Rescan_Delay -= 1;
+			}
+			else if( Aux_1_Sensor_A_Tick == 0 )
+			{
+				if( (GPIOB->IDR & 0x0100) == 0 )
+					Aux_1_Infrared_Poll += 1;
+				else
+					Aux_1_Infrared_Poll = 0;
 
-	if( b == 0 )
-		counter += 1;
-	else {
-		counter = 0;
-	}
+				if( Aux_1_Infrared_Poll > 100 )	// Polling is bad, should only be for 65 times, need to create a hardware interrupt
+				{
+					Aux_1_Infrared_Poll = 0;
+					Aux_1_Lap_Counter	+= 1;
+					Aux_1_Rescan_Delay	= SENSOR_RESCAN_DELAY; // wait two seconds before scanning again
 
-	if( counter > 65 )
-	{
-		counter = 0;
-	}
-*/
-	// read all the auxililary inputs and save their times for later use for recording time and/or speed
-	// if it is zero it can be set, if it's not? then it can't be changed until it's value is used and reset
-	if( (GPIOB->IDR & 0x0080) == 0 && Aux_1_Sensor_A_Tick == 0 ) // Blue(DC+) & Blue stripe(DC-)
-	{
-		Aux_1_Sensor_A_Tick = Timer6_Tick;
-	}
-	if( (GPIOB->IDR & 0x0100) == 0 && Aux_1_Sensor_B_Tick == 0 ) // Orange(DA-) & Orange stripe(DA+)
-	{
-		Aux_1_Sensor_B_Tick = Timer6_Tick;
-	}
+					if( Aux_1_Lap_Counter > Menu_Array[ AUX_1_CONFIG ].sub_context_3 )
+					{
+						Aux_1_Sensor_A_Tick = Timer6_Tick;
+						Aux_1_Rescan_Delay = 0;
+					}
+				}
+			}
+		}
+		else
+		{
+			// read all the auxililary inputs and save their times for later use for recording time and/or speed
+			// if it is zero it can be set, if it's not? then it can't be changed until it's value is used and reset
+			if( (GPIOB->IDR & 0x0080) == 0 && Aux_1_Sensor_A_Tick == 0 ) // Blue(DC+) & Blue stripe(DC-)
+			{
+				Aux_1_Sensor_A_Tick = Timer6_Tick;
+			}
+			if( (GPIOB->IDR & 0x0100) == 0 && Aux_1_Sensor_B_Tick == 0 ) // Orange(DA-) & Orange stripe(DA+)
+			{
+				Aux_1_Sensor_B_Tick = Timer6_Tick;
+			}
+		}
 
-	if( (GPIOB->IDR & 0x0010) == 0 && Aux_2_Sensor_A_Tick == 0 ) // Blue(DC+) & Blue stripe(DC-)
-	{
-		Aux_2_Sensor_A_Tick = Timer6_Tick;
-	}
-	if( (GPIOB->IDR & 0x0020) == 0 && Aux_2_Sensor_B_Tick == 0 ) // Orange(DA-) & Orange stripe(DA+)
-	{
-		Aux_2_Sensor_B_Tick = Timer6_Tick;
+		if( Menu_Array[ AUX_2_CONFIG ].sub_context_2 == INFRARED )
+		{
+			// if beam was tripped make sure to wait before scanning again while target moves through the beam
+			if( Aux_2_Rescan_Delay > 0 )
+			{
+				Aux_2_Rescan_Delay -= 1;
+			}
+			else if( Aux_2_Sensor_A_Tick == 0 )
+			{
+				if( (GPIOB->IDR & 0x0020) == 0 )
+					Aux_2_Infrared_Poll += 1;
+				else
+					Aux_2_Infrared_Poll = 0;
+
+				if( Aux_2_Infrared_Poll > 100 )	// Polling is bad, should only be for 65 times, need to create a hardware interrupt
+				{
+					Aux_2_Infrared_Poll = 0;
+					Aux_2_Lap_Counter	+= 1;
+					Aux_2_Rescan_Delay	= SENSOR_RESCAN_DELAY; // wait two seconds before scanning again
+
+					if( Aux_2_Lap_Counter > Menu_Array[ AUX_2_CONFIG ].sub_context_3 )
+					{
+						Aux_2_Sensor_A_Tick = Timer6_Tick;
+						Aux_2_Rescan_Delay = 0;
+					}
+				}
+			}
+		}
+		else
+		{
+			if( (GPIOB->IDR & 0x0010) == 0 && Aux_2_Sensor_A_Tick == 0 ) // Blue(DC+) & Blue stripe(DC-)
+			{
+				Aux_2_Sensor_A_Tick = Timer6_Tick;
+			}
+			if( (GPIOB->IDR & 0x0020) == 0 && Aux_2_Sensor_B_Tick == 0 ) // Orange(DA-) & Orange stripe(DA+)
+			{
+				Aux_2_Sensor_B_Tick = Timer6_Tick;
+			}
+		}
 	}
 
 	// handle dropping the gate
@@ -4192,17 +4253,11 @@ void PlayGateUpTones( void )
 static int16_t prev = 0xFFFF;
 static int16_t last_index = 0;
 
-int ReadInputs( int * inputs )
+int ReadInputs( int * inputs, int read_sensors )
 {
 	const unsigned int PortA_IDR = GPIOA->IDR;
 	const unsigned int PortB_IDR = GPIOB->IDR;
 	const unsigned int PortD_IDR = GPIOD->IDR;
-
-	// check for timer sensors
-	if( (PortB_IDR & 0x0080) == 0 ) { *inputs = AUX_1_SENSOR_A; return 0; }
-	if( (PortB_IDR & 0x0100) == 0 ) { *inputs = AUX_1_SENSOR_B; return 0; }
-	if( (PortB_IDR & 0x0010) == 0 ) { *inputs = AUX_2_SENSOR_A; return 0; }
-	if( (PortB_IDR & 0x0020) == 0 ) { *inputs = AUX_2_SENSOR_B; return 0; }
 
 	// check for RF remote buttons
 	if( PortA_IDR & 0x0001 ) { *inputs = BUTTON_A; return 0; }
@@ -4249,6 +4304,15 @@ int ReadInputs( int * inputs )
 		}
 	}
 
+	if( read_sensors == 1 )
+	{
+		// check for timer sensors
+		if( (PortB_IDR & 0x0080) == 0 ) { *inputs = AUX_1_SENSOR_A; return 0; }
+		if( (PortB_IDR & 0x0100) == 0 ) { *inputs = AUX_1_SENSOR_B; return 0; }
+		if( (PortB_IDR & 0x0010) == 0 ) { *inputs = AUX_2_SENSOR_A; return 0; }
+		if( (PortB_IDR & 0x0020) == 0 ) { *inputs = AUX_2_SENSOR_B; return 0; }
+	}
+
 	*inputs = 0;
 
 	return 0;
@@ -4258,7 +4322,7 @@ void WaitForButtonUp()
 {
 	int inputs = 0;
 
-	do { ReadInputs( &inputs ); } while ( inputs != 0 );
+	do { ReadInputs( &inputs, 0 ); } while ( inputs != 0 );
 }
 
 float BatteryLevel( const unsigned int display_level )
@@ -4735,11 +4799,11 @@ void InitMenus( void )
 	sprintf( Menu_Array[ GATE_DROPS_ON ].item[ 0 ],	  "Green" );
 
 	// sub menu text for auxiliary sensor type options
-	SetMenuText( Sensor_Text[ RIBBON_SWITCH ],	"\1 Ribbon Switch \2" );
-	SetMenuText( Sensor_Text[ INFRARED ], 		"\1 Infrared \2" );
-	SetMenuText( Sensor_Text[ LASER ], 			"\1 Laser \2" );
-	SetMenuText( Sensor_Text[ PROXIMITY ], 		"\1 Proximity \2" );
-	SetMenuText( Sensor_Text[ WIRELESS ], 		"\1 Wireless \2" );
+	strcpy( Sensor_Text[ RIBBON_SWITCH ],	"\1 Ribbon Switch \2" );
+	strcpy( Sensor_Text[ INFRARED ], 		"\1 Infrared \2" );
+	strcpy( Sensor_Text[ LASER ], 			"\1 Laser \2" );
+	strcpy( Sensor_Text[ PROXIMITY ], 		"\1 Proximity \2" );
+	strcpy( Sensor_Text[ WIRELESS ], 		"\1 Wireless \2" );
 
 	Menu_Array[ AUX_1_CONFIG ].menu_type	= EDIT_CHOICE;
 	Menu_Array[ AUX_1_CONFIG ].context 		= AUX_DISABLED;
@@ -4966,12 +5030,6 @@ void SaveEverythingToFlashMemory( void )
 	FLASH_ProgramWord( write_address, Aux_1_Sensor_Spacing );	write_address += 4;
 	FLASH_ProgramWord( write_address, Aux_2_Sensor_Spacing );	write_address += 4;
 
-	FLASH_ProgramWord( write_address, Aux_1_Sensor_Type );	write_address += 4;
-	FLASH_ProgramWord( write_address, Aux_2_Sensor_Type );	write_address += 4;
-
-	FLASH_ProgramWord( write_address, Aux_1_Lap_Count );	write_address += 4;
-	FLASH_ProgramWord( write_address, Aux_2_Lap_Count );	write_address += 4;
-
 	FLASH_ProgramWord( write_address, Reaction_Game_P1_BEST );	write_address += 4;
 	FLASH_ProgramWord( write_address, Reaction_Game_P1_AVG );	write_address += 4;
 	FLASH_ProgramWord( write_address, Reaction_Game_P1_WORST );	write_address += 4;
@@ -5058,12 +5116,6 @@ void ReadEverythingFromFlashMemory( void )
 
 	Aux_1_Sensor_Spacing	= *(volatile uint32_t*)read_address; read_address += 4;
 	Aux_2_Sensor_Spacing	= *(volatile uint32_t*)read_address; read_address += 4;
-
-	Aux_1_Sensor_Type		= *(volatile uint32_t*)read_address; read_address += 4;
-	Aux_2_Sensor_Type		= *(volatile uint32_t*)read_address; read_address += 4;
-
-	Aux_1_Lap_Count			= *(volatile uint32_t*)read_address; read_address += 4;
-	Aux_2_Lap_Count			= *(volatile uint32_t*)read_address; read_address += 4;
 
 	Reaction_Game_P1_BEST	= *(volatile uint32_t*)read_address; read_address += 4;
 	Reaction_Game_P1_AVG	= *(volatile uint32_t*)read_address; read_address += 4;
