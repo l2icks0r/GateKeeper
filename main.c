@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define CADENCE
-#define NUMBERS
+//#define CADENCE
+//#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -220,7 +220,7 @@ enum MENUS	   { DROP_GATE = 0,
 				 REACTION_GAME,
 
 				 TOTAL_GATE_DROPS,
-//				 CLEAR_TOTAL_GATE_DROPS,
+				 CLEAR_TOTAL_GATE_DROPS,
 
 				 CADENCE_VOLUME,
 				 AUDIO_IN_VOLUME,
@@ -446,7 +446,7 @@ int main( void )
 
 				// write splash text
 				WriteLCD_LineCentered( "** RRP BMX GATES **", 0 );
-				WriteLCD_LineCentered( "Epicenter v0.9.1", 1 );
+				WriteLCD_LineCentered( "Epicenter v0.9.2", 1 );
 				UpdateLCD();
 
 				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
@@ -606,6 +606,13 @@ int main( void )
 						{
 							if( encoder_delta > 0 ) menu_index = REACTION_GAME;
 							else					menu_index = TIMER_HISTORY;
+						}
+
+						// skip ZERO_GATE_DROPS if gate drop count is zero
+						if( menu_index == CLEAR_TOTAL_GATE_DROPS && Menu_Array[ TOTAL_GATE_DROPS ].context == 0 )
+						{
+							if( encoder_delta > 0 ) menu_index = CADENCE_VOLUME;
+							else					menu_index = TOTAL_GATE_DROPS;
 						}
 
 						if( menu_index == RELEASE_DEVICE && Magnet_On == 1 ) menu_index = WIRELESS_REMOTE;
@@ -1919,10 +1926,9 @@ int main( void )
 							break;
 						}
 
-/*
 						case CLEAR_TOTAL_GATE_DROPS:
 						{
-							if( Timer_History_Index != 0 )
+							if( Menu_Array[ TOTAL_GATE_DROPS ].context != 0 )
 							{
 								WriteLCD_LineCentered( "Are you sure?", 0 );
 								WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
@@ -1953,7 +1959,7 @@ int main( void )
 									{
 										if( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context > 0 )
 										{
-											SetMenuText( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].item[ 0 ], "0" );
+											SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "0" );
 
 											Menu_Array[ TOTAL_GATE_DROPS ].context = 0;
 
@@ -1961,7 +1967,7 @@ int main( void )
 											ReadInputs( &inputs, 0 );
 											inputs = 0;
 
-											WriteLCD_LineCentered( "TOTAL GATE DROPS", 0 );
+											WriteLCD_LineCentered( "Total Gate Drops", 0 );
 											WriteLCD_LineCentered( "Zeroed", 1 );
 											UpdateLCD();
 
@@ -1975,7 +1981,6 @@ int main( void )
 							}
 							break;
 						}
-*/
 
 						case RELEASE_DEVICE:
 						{
@@ -4888,7 +4893,6 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].caption, "TOTAL GATE DROPS" );
 	sprintf( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "%d", Menu_Array[ TOTAL_GATE_DROPS ].context );
 
-	/*
 	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].menu_type		= VIEW_LIST;
 	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context		= 0;
 	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].sub_context_1	= 0;
@@ -4899,7 +4903,6 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].caption,   "ZERO GATE DROP COUNT" );
 	SetMenuText( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
 	ItemCopy( CLEAR_TOTAL_GATE_DROPS, Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context, 0, 1 );
-	*/
 
 	Menu_Array[ GATE_START_DELAY ].menu_type	= EDIT_VALUE;
 	Menu_Array[ GATE_START_DELAY ].context		= 0;
