@@ -1934,6 +1934,8 @@ int main( void )
 								WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
 								UpdateLCD();
 
+								Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context = 0;
+
 								while( 1 )
 								{
 									// wait for input
@@ -1961,7 +1963,7 @@ int main( void )
 										{
 											break;
 										}
-										if( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context > 0 )
+										else if( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context > 0 )
 										{
 											SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "0" );
 
