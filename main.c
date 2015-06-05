@@ -1957,6 +1957,10 @@ int main( void )
 
 									if( inputs == BUTTON_E )
 									{
+										if( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context == 0 )
+										{
+											break;
+										}
 										if( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context > 0 )
 										{
 											SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "0" );
