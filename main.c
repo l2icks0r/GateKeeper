@@ -5438,7 +5438,7 @@ void InitMenus( void )
 	Menu_Array[ TEST_LIGHTS ].sub_context_1 = 0;
 	Menu_Array[ TEST_LIGHTS ].sub_context_2 = 0;
 	Menu_Array[ TEST_LIGHTS ].sub_context_3 = 0;
-	Menu_Array[ TEST_LIGHTS ].item_count 	= 4;
+	Menu_Array[ TEST_LIGHTS ].item_count 	= 2;	// TODO: Implement the other patterns!
 	Menu_Array[ TEST_LIGHTS ].current_item  = 1;
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].caption, 	"TEST LIGHTS" );
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ 0 ],	SPACES );
