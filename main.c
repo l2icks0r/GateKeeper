@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define CADENCE
-//#define NUMBERS
+#define CADENCE
+#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -117,6 +117,7 @@ float BatteryLevel		  ( const unsigned int display_level );
 
 // UI
 void InitMenus( void );
+void SetGateMenuState( void ); // sets appropriate menu upon power up or after gate drop based on release device
 void ItemCopy( const unsigned int menu, const unsigned int source_index, const unsigned int dest_index, const unsigned int no_indicators );
 void SetMenuText( char * menu, const char * text );
 int  ReadInputs( int * inputs, int read_sensors );
@@ -145,8 +146,12 @@ void PlayGateUpTones( void );
 
 // causes the solenoid to be shut off after specified time in milliseconds
 void PulseSolenoid( const unsigned int pulse_time );
-// turns magnet off after delay set in GATE_DROPS_ON
-void TurnMagnetOff( void );
+// turns power off after delay set in GATE_DROPS_ON
+void StartGatePowerOffTimer( void );
+
+// directly set gate ports
+void SetGatePowerOff( void );
+void SetGatePowerOn( void );
 
 // reaction game
 void DoReactionGame( const unsigned int player_count );
@@ -203,13 +208,14 @@ enum INPUTS { 	BUTTON_A 		= 0x0001,
 				AUX_2_SENSOR_B	= 0x2000 };
 
 enum MENUS	   { DROP_GATE = 0,
+
+				 RAISE_GATE,
+
 				 ENERGIZE_MAGNET,
 
 				 GATE_START_DELAY,
 				 GATE_START_WARNING,
 				 GATE_DROPS_ON,
-
-				 AUTO_ANNOUNCE_TIMES,
 
 				 AUX_1_CONFIG,
 				 AUX_2_CONFIG,
@@ -217,15 +223,17 @@ enum MENUS	   { DROP_GATE = 0,
 				 TIMER_HISTORY,
 				 CLEAR_TIMER_HISTORY,
 
-				 REACTION_GAME,
+				 AUTO_ANNOUNCE_TIMES,
 
 				 TOTAL_GATE_DROPS,
-				 CLEAR_TOTAL_GATE_DROPS,
+				 ZERO_TOTAL_GATE_DROPS,
 
 				 CADENCE_VOLUME,
 				 AUDIO_IN_VOLUME,
 
 				 BATTERY_CONDITION,
+
+				 REACTION_GAME,
 
 				 WIRELESS_REMOTE,
 
@@ -268,6 +276,8 @@ struct MENU_DEFINITION
 
 enum DEVICE_STATE { STARTUP, RECHARGE, WAIT_FOR_USER, WAIT_FOR_SENSORS, WAIT_FOR_SPEED_TRAP };
 
+enum GATE_POWER_STATE { POWER_OFF, POWER_ON };
+
 // timing history size is 80 bytes
 struct TIMING_DEFINITION
 {
@@ -299,19 +309,22 @@ struct TIMING_DEFINITION
 #define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
 
 // define actual hardware memory addresses to read/write from flash (sector 1)
-#define FLASH_SAVE_MEMORY_START   0x08004000
-#define FLASH_SAVE_MEMORY_END     0x08007FFF
+#define FLASH_SAVE_MEMORY_START 0x08004000
+#define FLASH_SAVE_MEMORY_END   0x08007FFF
 
 // 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
-#define MAX_TIMING_HISTORIES 200
+#define MAX_TIMING_HISTORIES 	200
 // used as a counter for each timing entry for identification - reset at 1 million
-#define MAX_HISTORY_NUMBER 999999
+#define MAX_HISTORY_NUMBER	 	999999
 
 // maximum time to wait between speed sensors
 #define SENSOR_TIMEOUT_PERIOD	15000	// wait 1.5 seconds after speed sensor has triggered
 
 // delay to wait before reading a sensor again after target has passed through when counting more than one lap
 #define SENSOR_RESCAN_DELAY 	20000	// wait 2.0 seconds after target trips sensor
+
+// index for main switch statement
+static int Menu_Index = 0;
 
 // reserve memory to store all menus
 static struct MENU_DEFINITION Menu_Array[ MENUS_SIZE ];
@@ -332,13 +345,16 @@ static unsigned int Cadence_Cancelled = 0;
 static unsigned int Cancel_Timing	  = 0;
 
 // variables used to communicated from main code to interrupt code
-static unsigned int Gate_Drop_Delay		= 0;
-static unsigned int Pulse_Solenoid 		= 0;
-static unsigned int Solenoid_Pulse_Time = 0;
-static unsigned int Turn_Magnet_Off		= 0;
-static unsigned int Magnet_On 			= 0;
+static unsigned int Gate_Drop_Delay			= 0;
+static unsigned int Pulse_Solenoid 			= 0;
+static unsigned int Solenoid_Pulse_Time 	= 0;
+static unsigned int Gate_Power_Off_Pending	= 0;
+static unsigned int Gate_Power_State 		= 0;
 
-static unsigned int Timing_Active		= 0;
+// special flag set at beginning of DropGate(), cleared at end of DropGate() - used in Timer 6 IRQ
+static unsigned int Dropping_Gate = 0;
+
+static unsigned int Timing_Active = 0;
 
 // sensor ticks set by timer 6 and cleared in DropGate()
 static unsigned int Aux_1_Sensor_A_Tick = 0;
@@ -414,8 +430,9 @@ int main( void )
 	// enable gates
  	GPIO_ResetBits( GPIOA, GPIO_Pin_3 );	// gate drive enable
 
-	static int inputs	  = 0;
-	static int menu_index = 0;
+	static int inputs = 0;
+
+	SetGateMenuState();
 
 	// called to ignore first result which is false
 	ReadInputs( & inputs, 1 );
@@ -469,7 +486,7 @@ int main( void )
 				SetAttenuator( 0x1000 );
 				SetAttenuator( 0x0000 );
 
-				while( BatteryLevel( 1 ) < 310000.0f ); // don't function until battery is at least 30% charge
+				while( BatteryLevel( 1 ) < 310000.0f ); // don't function until battery is at least 40% charge
 
 				Device_State = STARTUP;
 				break;
@@ -485,8 +502,8 @@ int main( void )
 				while( Device_State == WAIT_FOR_USER )
 				{
 					// write the menu first time through
-					WriteLCD_LineCentered( Menu_Array[ menu_index ].caption, 0 );
-					WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
+					WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
+					WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 					UpdateLCD();
 
 					do
@@ -498,7 +515,7 @@ int main( void )
 						}
 
 						// update battery condition in realtime if battery condition menu is the current menu being displayed
-						if( menu_index == BATTERY_CONDITION )
+						if( Menu_Index == BATTERY_CONDITION )
 						{
 							float battery_level = 0;
 							int a = 0;
@@ -586,51 +603,149 @@ int main( void )
 						// if no input then there is nothing to do
 						if( encoder_delta == 0 && inputs == 0 ) continue;
 
-						menu_index += encoder_delta;
+						Menu_Index += encoder_delta;
+
+
 
 						// make sure that index is within the array of menus
-						if( menu_index == MENUS_SIZE ) menu_index--;
-						else if( menu_index < 0) menu_index = 0;
+						if( Menu_Index == MENUS_SIZE )
+							Menu_Index--;
+						else if( Menu_Index < 0)
+							Menu_Index = 0;
 
-						// skip ENERGIZE MAGNET menu and RELEASE DEVICE menu if the magnet is on
-						if( menu_index == ENERGIZE_MAGNET && (	Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID ||
-																Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM  ||
-																Magnet_On == 1 )  )
+						// determine what menu to be one based on if the gate is up/down and what release device is being used
+						if( Gate_Power_State == POWER_OFF )
 						{
-							if( encoder_delta > 0 ) menu_index = GATE_START_DELAY;
-							else					menu_index = DROP_GATE;
+							if( encoder_delta < 0 )
+							{
+								if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET )
+								{
+									if( Menu_Index == DROP_GATE || Menu_Index == RAISE_GATE )
+									{
+										Menu_Index = ENERGIZE_MAGNET;
+									}
+								}
+								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+								{
+									if( Menu_Index == DROP_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = RAISE_GATE;
+									}
+								}
+								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
+								{
+									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = DROP_GATE;
+									}
+								}
+							}
+							else if( encoder_delta > 0 )
+							{
+								if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET )
+								{
+									if( Menu_Index == DROP_GATE || Menu_Index == RAISE_GATE )
+									{
+										Menu_Index = GATE_START_DELAY;
+									}
+								}
+								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+								{
+									if( Menu_Index == DROP_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = GATE_START_DELAY;
+									}
+								}
+								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
+								{
+									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = GATE_START_DELAY;
+									}
+								}
+							}
+						}
+						else if( Gate_Power_State == POWER_ON )
+						{
+							if( encoder_delta < 0 )
+							{
+								if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET )
+								{
+									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = DROP_GATE;
+									}
+								}
+								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+								{
+									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = DROP_GATE;
+									}
+								}
+								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
+								{
+									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = DROP_GATE;
+									}
+								}
+							}
+							else if( encoder_delta > 0 )
+							{
+								if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET )
+								{
+									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = GATE_START_DELAY;
+									}
+								}
+								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+								{
+									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = GATE_START_DELAY;
+									}
+								}
+								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
+								{
+									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
+									{
+										Menu_Index = GATE_START_DELAY;
+									}
+								}
+							}
 						}
 
 						// skip CLEAR_TIMER_HISTORY if timer history is empty
-						if( menu_index == CLEAR_TIMER_HISTORY && Timer_History_Index == 0 )
+						if( Menu_Index == CLEAR_TIMER_HISTORY && Timer_History_Index == 0 )
 						{
-							if( encoder_delta > 0 ) menu_index = REACTION_GAME;
-							else					menu_index = TIMER_HISTORY;
+							if( encoder_delta > 0 ) Menu_Index = AUTO_ANNOUNCE_TIMES;
+							else					Menu_Index = TIMER_HISTORY;
 						}
-
-						// skip ZERO_GATE_DROPS if gate drop count is zero
-						if( menu_index == CLEAR_TOTAL_GATE_DROPS && Menu_Array[ TOTAL_GATE_DROPS ].context == 0 )
+						// skip ZERO_TOTAL_GATE_DROPS if gate drop count is zero
+						else if( Menu_Index == ZERO_TOTAL_GATE_DROPS && Menu_Array[ TOTAL_GATE_DROPS ].context == 0 )
 						{
-							if( encoder_delta > 0 ) menu_index = CADENCE_VOLUME;
-							else					menu_index = TOTAL_GATE_DROPS;
+							if( encoder_delta > 0 ) Menu_Index = CADENCE_VOLUME;
+							else					Menu_Index = TOTAL_GATE_DROPS;
 						}
+						else if( Menu_Index == RELEASE_DEVICE && Gate_Power_State == POWER_ON ) Menu_Index = WIRELESS_REMOTE;
 
-						if( menu_index == RELEASE_DEVICE && Magnet_On == 1 ) menu_index = WIRELESS_REMOTE;
 
 						// if the encoder wheel moved then display the new menu text
 						if( encoder_delta != 0 )
 						{
 							// update the display with the currently selected menu
-							WriteLCD_LineCentered( Menu_Array[ menu_index ].caption, 0 );
-							WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
+							WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
+							WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 							UpdateLCD();
 						}
 
-						// if any sensors trip and aux port is configured as a switch then drop the gate
+						// if any sensors trip and aux port is configured as a switch then drop/raise the gate
 						if( ( Menu_Array[ AUX_1_CONFIG ].context == AUX_GATE_SWITCH && ((inputs == AUX_1_SENSOR_A) || (inputs == AUX_1_SENSOR_B)) ) ||
 						    ( Menu_Array[ AUX_2_CONFIG ].context == AUX_GATE_SWITCH && ((inputs == AUX_2_SENSOR_A) || (inputs == AUX_2_SENSOR_B)) ) )
 						{
-							menu_index = DROP_GATE;
+							SetGateMenuState();
 						}
 						else
 						{	// filter sensor inputs
@@ -641,21 +756,25 @@ int main( void )
 						// skip processing the wireless remote if it is disabled
 						if( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_DISABLED )
 						{
-							if( inputs == BUTTON_A || inputs == BUTTON_B || inputs == BUTTON_C || inputs == BUTTON_D )
+							if( ((inputs^BUTTON_A) == 0) || ((inputs^BUTTON_B) == 0) || ((inputs^BUTTON_C) == 0) || ((inputs^BUTTON_D) == 0) )
+							{
+								inputs = 0;
 								continue;
+							}
 						}
 
 					} while ( inputs == 0 );
 
-
 					// process button presses from RF keyfob remote
 					if( inputs == BUTTON_A )
 					{
-						menu_index = DROP_GATE;
+						SetGateMenuState();
 					}
 					else if( inputs == BUTTON_B )
 					{	// say last time was time, last time was time + mph, or just mph
 #ifdef NUMBERS
+						Cadence_Cancelled = 0; // TODO: THIS IS A BAND AID FIX!!!! Figure out what the fuck is going on here!
+
 						if( Timer_History[ 0 ].elapsed_time > 0 )
 						{
 							PlaySilence( 100, 1 );
@@ -678,13 +797,8 @@ int main( void )
 					}
 					else if( inputs == BUTTON_C )
 					{
-						// button C has no function unless in magnet mode, BUTTON_C is cancel once cadence starts
-						if( Magnet_On == 0 && Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET )
-						{
-							menu_index = ENERGIZE_MAGNET;
-						}
-						else
-							continue;
+						// TODO: Add functionality for button C, decrease cadence volume by 10% ?
+						continue;
 					}
 					else if( inputs == BUTTON_D )
 					{
@@ -724,29 +838,17 @@ int main( void )
 /*
  * Handle driving each menu choice when encoder button is pressed for that menu
  */
-// TODO: Filter everything but button E by modifying all the calls to ReadInputs
-
-					switch ( menu_index )
+					switch ( Menu_Index )
 					{
 						case DROP_GATE:
 						{
 							if( inputs != BUTTON_E && Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_DISABLED )
 								break;
 
-							if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET && Magnet_On == 0 )
+							if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET && Gate_Power_State == POWER_OFF )
 							{
 								WriteLCD_LineCentered( "Magnet is not", 0 );
 								WriteLCD_LineCentered( "energized", 1 );
-							    UpdateLCD();
-
-							    Delay( 3000 );
-							    break;
-							}
-
-							if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
-							{
-								WriteLCD_LineCentered( "Air ram is not", 0 );
-								WriteLCD_LineCentered( "configured", 1 );
 							    UpdateLCD();
 
 							    Delay( 3000 );
@@ -821,6 +923,25 @@ int main( void )
 								Device_State = WAIT_FOR_SENSORS;
 							}
 
+							SetGateMenuState();
+
+							break;
+						}
+
+						case RAISE_GATE:
+						{
+							//PlayRaiseGateAnimation();
+
+							WriteLCD_LineCentered( "RAISE GATE", 0 );
+							WriteLCD_LineCentered( "Raising Gate", 1 );
+							UpdateLCD();
+
+							PlayGateUpTones();
+
+							SetGatePowerOn();
+
+							Menu_Index = DROP_GATE;
+
 							break;
 						}
 
@@ -832,14 +953,11 @@ int main( void )
 								WriteLCD_LineCentered( "magnet is on", 1 );
 								UpdateLCD();
 
-								GPIO_SetBits( GPIOA, GPIO_Pin_2 );	// gate 1 ON
-								GPIO_SetBits( GPIOA, GPIO_Pin_1 );	// gate 2 ON
-
-								Magnet_On = 1;
+								SetGatePowerOn();
 
 								PlayGateUpTones();
 
-								menu_index = DROP_GATE;
+								Menu_Index = DROP_GATE;
 							}
 							break;
 						}
@@ -849,27 +967,27 @@ int main( void )
 						{
 							while( 1 )
 							{
-								if( Menu_Array[ menu_index ].context == 0 )
+								if( Menu_Array[ Menu_Index ].context == 0 )
 								{
-									if( menu_index == GATE_START_DELAY )
-										sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 No Delay \2");
+									if( Menu_Index == GATE_START_DELAY )
+										sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 No Delay \2");
 									else
-										sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 No Warning \2");
+										sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 No Warning \2");
 								}
-								else if( Menu_Array[ menu_index ].context == 1 )
+								else if( Menu_Array[ Menu_Index ].context == 1 )
 								{
-									sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 %d second \2", Menu_Array[ menu_index ].context );
+									sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d second \2", Menu_Array[ Menu_Index ].context );
 								}
-								else if( Menu_Array[ menu_index ].context < 120 )
+								else if( Menu_Array[ Menu_Index ].context < 120 )
 								{
-									sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 %d seconds \2", Menu_Array[ menu_index ].context );
+									sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d seconds \2", Menu_Array[ Menu_Index ].context );
 								}
 								else
 								{
-									sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 %d minutes \2", Menu_Array[ menu_index ].context / 60 );
+									sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d minutes \2", Menu_Array[ Menu_Index ].context / 60 );
 								}
 
-								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 								UpdateLCD();
 
 								// read controls
@@ -881,50 +999,50 @@ int main( void )
 								// change menu value
 								if( encoder_delta != 0 )
 								{
-									if( Menu_Array[ menu_index ].context < 60 )
+									if( Menu_Array[ Menu_Index ].context < 60 )
 									{
-										Menu_Array[ menu_index ].context += encoder_delta;
+										Menu_Array[ Menu_Index ].context += encoder_delta;
 
 										// don't allow the gate start warning to be less than five seconds
-										if( menu_index == GATE_START_WARNING && Menu_Array[ GATE_START_WARNING ].context < 5 )
+										if( Menu_Index == GATE_START_WARNING && Menu_Array[ GATE_START_WARNING ].context < 5 )
 										{
 											if( encoder_delta == 1 ) Menu_Array[ GATE_START_WARNING ].context = 5;
 											if( encoder_delta == -1 ) Menu_Array[ GATE_START_WARNING ].context = 0;
 										}
 									}
-									else if( Menu_Array[ menu_index ].context == 60 )
+									else if( Menu_Array[ Menu_Index ].context == 60 )
 									{
 										if( encoder_delta < 0 )
 										{
-											Menu_Array[ menu_index ].context += encoder_delta;
+											Menu_Array[ Menu_Index ].context += encoder_delta;
 										}
 										else
 										{
-											Menu_Array[ menu_index ].context += encoder_delta * 10;
+											Menu_Array[ Menu_Index ].context += encoder_delta * 10;
 										}
 									}
-									else if( Menu_Array[ menu_index ].context == 120 )
+									else if( Menu_Array[ Menu_Index ].context == 120 )
 									{
 										if( encoder_delta < 0 )
 										{
-											Menu_Array[ menu_index ].context += encoder_delta * 10;
+											Menu_Array[ Menu_Index ].context += encoder_delta * 10;
 										}
 										else
 										{
-											Menu_Array[ menu_index ].context += encoder_delta * 60;
+											Menu_Array[ Menu_Index ].context += encoder_delta * 60;
 										}
 									}
-									else if( Menu_Array[ menu_index ].context >= 120 )
+									else if( Menu_Array[ Menu_Index ].context >= 120 )
 									{
-										Menu_Array[ menu_index ].context += encoder_delta * 60;
+										Menu_Array[ Menu_Index ].context += encoder_delta * 60;
 									}
 									else
 									{
-										Menu_Array[ menu_index ].context += encoder_delta * 10;
+										Menu_Array[ Menu_Index ].context += encoder_delta * 10;
 									}
 
-									if( Menu_Array[ menu_index ].context < 0 )
-										Menu_Array[ menu_index ].context = 0;
+									if( Menu_Array[ Menu_Index ].context < 0 )
+										Menu_Array[ Menu_Index ].context = 0;
 
 									continue;
 								}
@@ -933,27 +1051,27 @@ int main( void )
 								// check for exit
 								WaitForButtonUp();
 
-								if( Menu_Array[ menu_index ].context == 0 )
+								if( Menu_Array[ Menu_Index ].context == 0 )
 								{
-									if( menu_index == GATE_START_WARNING )
+									if( Menu_Index == GATE_START_WARNING )
 										sprintf( Menu_Array[ GATE_START_WARNING ].item[ 0 ], "No Warning");
 									else
-										sprintf( Menu_Array[ menu_index ].item[ 0 ], "No Delay");
+										sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "No Delay");
 								}
-								else if( Menu_Array[ menu_index ].context == 1 )
+								else if( Menu_Array[ Menu_Index ].context == 1 )
 								{
-									sprintf( Menu_Array[ menu_index ].item[ 0 ], "%d second", Menu_Array[ menu_index ].context );
+									sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "%d second", Menu_Array[ Menu_Index ].context );
 								}
-								else if( Menu_Array[ menu_index ].context < 120 )
+								else if( Menu_Array[ Menu_Index ].context < 120 )
 								{
-									sprintf( Menu_Array[ menu_index ].item[ 0 ], "%d seconds", Menu_Array[ menu_index ].context );
+									sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "%d seconds", Menu_Array[ Menu_Index ].context );
 								}
 								else
 								{
-									sprintf( Menu_Array[ menu_index ].item[ 0 ], "%d minutes", Menu_Array[ menu_index ].context / 60 );
+									sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "%d minutes", Menu_Array[ Menu_Index ].context / 60 );
 								}
 
-								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
@@ -1075,53 +1193,12 @@ int main( void )
 							break;
 						}
 
-						case AUTO_ANNOUNCE_TIMES:
-						{
-							while( 1 )
-							{
-								WriteLCD_LineCentered( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ Menu_Array[ AUTO_ANNOUNCE_TIMES ].context ], 1 );
-								UpdateLCD();
-
-								// read controls
-								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
-
-								} while (encoder_delta == 0 && inputs == 0 );
-
-								// change menu value
-								if( encoder_delta != 0 )
-								{
-									int new_value = Menu_Array[ AUTO_ANNOUNCE_TIMES ].context + encoder_delta;
-
-									if( new_value >= 1 && new_value <= 2 )
-										Menu_Array[ AUTO_ANNOUNCE_TIMES ].context = new_value;
-
-									continue;
-								}
-
-								// check for exit
-								WaitForButtonUp();
-
-								ItemCopy( AUTO_ANNOUNCE_TIMES, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context, 0, 1 );
-								WriteLCD_LineCentered( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ], 1 );
-								UpdateLCD();
-
-								SaveEverythingToFlashMemory();
-								ReadInputs( &inputs, 0 );
-								inputs = 0;
-
-								break;
-							}
-							break;
-
-						}
-
 						case AUX_1_CONFIG:
 						case AUX_2_CONFIG:
 						{
 							while( 1 )
 							{
-								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ Menu_Array[ menu_index ].context ], 1 );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ Menu_Array[ Menu_Index ].context ], 1 );
 								UpdateLCD();
 
 								// read controls
@@ -1134,23 +1211,23 @@ int main( void )
 								// change menu value
 								if( encoder_delta != 0 )
 								{
-									const int new_item = Menu_Array[ menu_index ].current_item + encoder_delta;
+									const int new_item = Menu_Array[ Menu_Index ].current_item + encoder_delta;
 
-									if( new_item > Menu_Array[ menu_index ].item_count ) continue;
+									if( new_item > Menu_Array[ Menu_Index ].item_count ) continue;
 									if( new_item < 1 ) continue;
 
-									Menu_Array[ menu_index ].current_item = new_item;
+									Menu_Array[ Menu_Index ].current_item = new_item;
 
 									switch( new_item )
 									{
-										case 1: { Menu_Array[ menu_index ].context = AUX_DISABLED; 		 break;	}
-										case 2: { Menu_Array[ menu_index ].context = AUX_TIME;			 break;	}
-										case 3: { Menu_Array[ menu_index ].context = AUX_TIME_SPEED;	 break;	}
-										case 4: { Menu_Array[ menu_index ].context = AUX_SPRINT_TIMER;	 break;	}
-										case 5: { Menu_Array[ menu_index ].context = AUX_GATE_SWITCH;	 break;	}
-										case 6:	{ Menu_Array[ menu_index ].context = AUX_SENSOR_SPACING; break;	}
-										case 7:	{ Menu_Array[ menu_index ].context = AUX_SENSOR_TYPE; 	 break;	}
-										case 8:	{ Menu_Array[ menu_index ].context = AUX_LAP_COUNT; 	 break;	}
+										case 1: { Menu_Array[ Menu_Index ].context = AUX_DISABLED; 	 	break;	}
+										case 2: { Menu_Array[ Menu_Index ].context = AUX_TIME;		 	break;	}
+										case 3: { Menu_Array[ Menu_Index ].context = AUX_TIME_SPEED;	 	break;	}
+										case 4: { Menu_Array[ Menu_Index ].context = AUX_SPRINT_TIMER;	break;	}
+										case 5: { Menu_Array[ Menu_Index ].context = AUX_GATE_SWITCH;	break;	}
+										case 6:	{ Menu_Array[ Menu_Index ].context = AUX_SENSOR_SPACING; break;	}
+										case 7:	{ Menu_Array[ Menu_Index ].context = AUX_SENSOR_TYPE; 	break;	}
+										case 8:	{ Menu_Array[ Menu_Index ].context = AUX_LAP_COUNT; 		break;	}
 									}
 									continue;
 								}
@@ -1158,13 +1235,13 @@ int main( void )
 								// check for exit
 								WaitForButtonUp();
 
-								if( Menu_Array[ menu_index ].context == AUX_SENSOR_TYPE )
+								if( Menu_Array[ Menu_Index ].context == AUX_SENSOR_TYPE )
 								{
 									WriteLCD_LineCentered( "SENSOR TYPE", 0 );
 
 									while( 1 )
 									{
-										WriteLCD_LineCentered( Sensor_Text[ Menu_Array[ menu_index ].sub_context_2 ], 1 );
+										WriteLCD_LineCentered( Sensor_Text[ Menu_Array[ Menu_Index ].sub_context_2 ], 1 );
 										UpdateLCD();
 
 										// read controls
@@ -1176,11 +1253,11 @@ int main( void )
 										// change menu value
 										if( encoder_delta != 0 )
 										{
-											int new_value = Menu_Array[ menu_index ].sub_context_2 + encoder_delta;
+											int new_value = Menu_Array[ Menu_Index ].sub_context_2 + encoder_delta;
 
 											if( new_value >= 0 && new_value < SENSOR_OPTIONS_SIZE )
 											{
-												Menu_Array[ menu_index ].sub_context_2 = new_value;
+												Menu_Array[ Menu_Index ].sub_context_2 = new_value;
 											}
 
 											continue;
@@ -1190,7 +1267,7 @@ int main( void )
 										WaitForButtonUp();
 
 										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ menu_index ].caption, 0 );
+										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory();
@@ -1201,15 +1278,15 @@ int main( void )
 									}
 									continue;
 								}
-								else if( Menu_Array[ menu_index ].context == AUX_SENSOR_SPACING )
+								else if( Menu_Array[ Menu_Index ].context == AUX_SENSOR_SPACING )
 								{
 									WriteLCD_LineCentered( "SENSOR SPACING", 0 );
 
 									while( 1 )
 									{
 										// add cursor
-										sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 %d inches \2", Menu_Array[ menu_index ].sub_context_1 );
-										WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
+										sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d inches \2", Menu_Array[ Menu_Index ].sub_context_1 );
+										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 										UpdateLCD();
 
 										// read controls
@@ -1221,13 +1298,13 @@ int main( void )
 										// change menu value
 										if( encoder_delta != 0 )
 										{
-											int new_value = Menu_Array[ menu_index ].sub_context_1 + encoder_delta;
+											int new_value = Menu_Array[ Menu_Index ].sub_context_1 + encoder_delta;
 
 											if( new_value >= 12 && new_value <= 48 )
 											{
-												Menu_Array[ menu_index ].sub_context_1 = new_value;
+												Menu_Array[ Menu_Index ].sub_context_1 = new_value;
 
-												if( menu_index == AUX_1_CONFIG )
+												if( Menu_Index == AUX_1_CONFIG )
 													Aux_1_Sensor_Spacing = new_value;
 												else
 													Aux_2_Sensor_Spacing = new_value;
@@ -1240,7 +1317,7 @@ int main( void )
 										WaitForButtonUp();
 
 										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ menu_index ].caption, 0 );
+										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory();
@@ -1251,15 +1328,15 @@ int main( void )
 									}
 									continue;
 								}
-								else if( Menu_Array[ menu_index ].context == AUX_LAP_COUNT )
+								else if( Menu_Array[ Menu_Index ].context == AUX_LAP_COUNT )
 								{
 									WriteLCD_LineCentered( "LAP COUNT", 0 );
 
 									while( 1 )
 									{
 										// add cursor
-										sprintf( Menu_Array[ menu_index ].item[ 0 ], "\1 %d laps \2", Menu_Array[ menu_index ].sub_context_3 );
-										WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
+										sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d laps \2", Menu_Array[ Menu_Index ].sub_context_3 );
+										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 										UpdateLCD();
 
 										// read controls
@@ -1271,11 +1348,11 @@ int main( void )
 										// change menu value
 										if( encoder_delta != 0 )
 										{
-											int new_value = Menu_Array[ menu_index ].sub_context_3 + encoder_delta;
+											int new_value = Menu_Array[ Menu_Index ].sub_context_3 + encoder_delta;
 
 											if( new_value >= 0 )
 											{
-												Menu_Array[ menu_index ].sub_context_3 = new_value;
+												Menu_Array[ Menu_Index ].sub_context_3 = new_value;
 											}
 
 											continue;
@@ -1285,7 +1362,7 @@ int main( void )
 										WaitForButtonUp();
 
 										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ menu_index ].caption, 0 );
+										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory();
@@ -1296,25 +1373,25 @@ int main( void )
 									}
 									continue;
 								}
-								else if( Menu_Array[ menu_index ].context == AUX_SPRINT_TIMER )
+								else if( Menu_Array[ Menu_Index ].context == AUX_SPRINT_TIMER )
 								{
 									Timing_Active = 1;
-									DoSprintTimer( menu_index );
+									DoSprintTimer( Menu_Index );
 									Timing_Active = 0;
 
 									WaitForButtonUp();
 
-									ItemCopy( menu_index, Menu_Array[ menu_index ].context, 0, 1 );
+									ItemCopy( Menu_Index, Menu_Array[ Menu_Index ].context, 0, 1 );
 
-									WriteLCD_LineCentered( Menu_Array[ menu_index ].caption, 0 );
-									WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
+									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
+									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 									UpdateLCD();
 
 									break;
 								}
 
-								ItemCopy( menu_index, Menu_Array[ menu_index ].context, 0, 1 );
-								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
+								ItemCopy( Menu_Index, Menu_Array[ Menu_Index ].context, 0, 1 );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory();
@@ -1577,13 +1654,243 @@ int main( void )
 											UpdateLCD();
 
 											Delay( 2000 );
-											menu_index = TIMER_HISTORY;
+
+											Menu_Index = TIMER_HISTORY;
 										}
 										break;
 									}
 									continue;
 								}
 							}
+							break;
+						}
+
+						case AUTO_ANNOUNCE_TIMES:
+						{
+							while( 1 )
+							{
+								WriteLCD_LineCentered( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ Menu_Array[ AUTO_ANNOUNCE_TIMES ].context ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( &inputs, 0 );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									int new_value = Menu_Array[ AUTO_ANNOUNCE_TIMES ].context + encoder_delta;
+
+									if( new_value >= 1 && new_value <= 2 )
+										Menu_Array[ AUTO_ANNOUNCE_TIMES ].context = new_value;
+
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								ItemCopy( AUTO_ANNOUNCE_TIMES, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context, 0, 1 );
+								WriteLCD_LineCentered( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs, 0 );
+								inputs = 0;
+
+								break;
+							}
+							break;
+
+						}
+
+						case TOTAL_GATE_DROPS:
+						{
+							sprintf( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "%d", Menu_Array[ TOTAL_GATE_DROPS ].context );
+							WriteLCD_LineCentered( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], 1 );
+							UpdateLCD();
+
+							break;
+						}
+
+						case ZERO_TOTAL_GATE_DROPS:
+						{
+							if( Menu_Array[ TOTAL_GATE_DROPS ].context != 0 )
+							{
+								WriteLCD_LineCentered( "Are you sure?", 0 );
+								WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
+								UpdateLCD();
+
+								Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context = 0;
+
+								while( 1 )
+								{
+									// wait for input
+									do
+									{	encoder_delta = ReadInputs( &inputs, 0 );
+
+									} while ( encoder_delta == 0 && inputs == 0 );
+
+									if( encoder_delta == -1 )
+									{
+										Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context = 1;
+										WriteLCD_LineCentered( "\1 YES \2/ no", 1 );
+										UpdateLCD();
+									}
+									else if( encoder_delta == 1 )
+									{
+										Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context = 0;
+										WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
+										UpdateLCD();
+									}
+
+									if( inputs == BUTTON_E )
+									{
+										if( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context == 0 )
+										{
+											break;
+										}
+										else if( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context > 0 )
+										{
+											SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "0" );
+
+											Menu_Array[ TOTAL_GATE_DROPS ].context = 0;
+
+											SaveEverythingToFlashMemory();
+											ReadInputs( &inputs, 0 );
+											inputs = 0;
+
+											WriteLCD_LineCentered( "Total Gate Drops", 0 );
+											WriteLCD_LineCentered( "Zeroed", 1 );
+											UpdateLCD();
+
+											Delay( 2000 );
+
+											Menu_Index = TOTAL_GATE_DROPS;
+										}
+										break;
+									}
+									continue;
+								}
+							}
+							break;
+						}
+
+						case CADENCE_VOLUME:
+						{
+							while( 1 )
+							{
+								// display with cursor
+								sprintf( Menu_Array[ CADENCE_VOLUME ].item[ 0 ], "\1 %d%% \2", Menu_Array[ CADENCE_VOLUME ].context );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( &inputs, 0 );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									int new_value = Menu_Array[ CADENCE_VOLUME ].context += encoder_delta;
+
+									if( new_value > 100 ) new_value = 100;
+									if( new_value < 0 ) new_value = 0;
+
+									Menu_Array[ CADENCE_VOLUME ].context = new_value;
+
+									int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
+
+									SetAttenuator( 0x1000 | volume );
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								// remove cursor and exit
+								sprintf( Menu_Array[ CADENCE_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ CADENCE_VOLUME ].context );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								break;
+							}
+
+#ifdef NUMBERS
+							PlaySilence( 100, 0 );
+							PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
+							PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
+							InitAudio();
+#endif
+							SaveEverythingToFlashMemory();
+							ReadInputs( &inputs, 0 );
+							inputs = 0;
+
+							break;
+						}
+
+						case AUDIO_IN_VOLUME:
+						{
+							while( 1 )
+							{
+								// display with cursor
+								sprintf( Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ], "\1 %d%% \2", Menu_Array[ AUDIO_IN_VOLUME ].context );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( &inputs, 0 );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									int new_value = Menu_Array[ AUDIO_IN_VOLUME ].context += encoder_delta;
+
+									if( new_value > 100 ) new_value = 100;
+									if( new_value < 0 ) new_value = 0;
+
+									Menu_Array[ AUDIO_IN_VOLUME ].context = new_value;
+
+									int volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
+
+									SetAttenuator( 0x0000 | volume );
+
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								// remove cursor and exit
+								sprintf( Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ AUDIO_IN_VOLUME ].context );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs, 0 );
+								inputs = 0;
+
+								break;
+							}
+
+							break;
+						}
+
+						case BATTERY_CONDITION:
+						{
+#ifdef NUMBERS
+//							PlaySilence( 100, 0 );
+//							PlaySample24khz( BatteryAtData, 0, BATTERY_AT_SIZE, 1 );
+//							PlayTimeOrPercent( Menu_Array[ BATTERY_CONDITION ].context * 60 * 1000, PLAY_PERCENT );
+//							InitAudio();
+#endif
 							break;
 						}
 
@@ -1760,111 +2067,6 @@ int main( void )
 							break;
 						}
 
-						case CADENCE_VOLUME:
-						{
-							while( 1 )
-							{
-								// display with cursor
-								sprintf( Menu_Array[ CADENCE_VOLUME ].item[ 0 ], "\1 %d%% \2", Menu_Array[ CADENCE_VOLUME ].context );
-								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
-								UpdateLCD();
-
-								// read controls
-								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
-
-								} while (encoder_delta == 0 && inputs == 0 );
-
-								// change menu value
-								if( encoder_delta != 0 )
-								{
-									int new_value = Menu_Array[ CADENCE_VOLUME ].context += encoder_delta;
-
-									if( new_value > 100 ) new_value = 100;
-									if( new_value < 0 ) new_value = 0;
-
-									Menu_Array[ CADENCE_VOLUME ].context = new_value;
-
-									int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
-
-									SetAttenuator( 0x1000 | volume );
-									continue;
-								}
-
-								// check for exit
-								WaitForButtonUp();
-
-								// remove cursor and exit
-								sprintf( Menu_Array[ CADENCE_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ CADENCE_VOLUME ].context );
-								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
-								UpdateLCD();
-
-								break;
-							}
-
-#ifdef NUMBERS
-							PlaySilence( 100, 0 );
-							PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
-							PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
-							InitAudio();
-#endif
-							SaveEverythingToFlashMemory();
-							ReadInputs( &inputs, 0 );
-							inputs = 0;
-
-							break;
-						}
-
-						case AUDIO_IN_VOLUME:
-						{
-							while( 1 )
-							{
-								// display with cursor
-								sprintf( Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ], "\1 %d%% \2", Menu_Array[ AUDIO_IN_VOLUME ].context );
-								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
-								UpdateLCD();
-
-								// read controls
-								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
-
-								} while (encoder_delta == 0 && inputs == 0 );
-
-								// change menu value
-								if( encoder_delta != 0 )
-								{
-									int new_value = Menu_Array[ AUDIO_IN_VOLUME ].context += encoder_delta;
-
-									if( new_value > 100 ) new_value = 100;
-									if( new_value < 0 ) new_value = 0;
-
-									Menu_Array[ AUDIO_IN_VOLUME ].context = new_value;
-
-									int volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
-
-									SetAttenuator( 0x0000 | volume );
-
-									continue;
-								}
-
-								// check for exit
-								WaitForButtonUp();
-
-								// remove cursor and exit
-								sprintf( Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ AUDIO_IN_VOLUME ].context );
-								WriteLCD_LineCentered( Menu_Array[ menu_index ].item[ 0 ], 1 );
-								UpdateLCD();
-
-								SaveEverythingToFlashMemory();
-								ReadInputs( &inputs, 0 );
-								inputs = 0;
-
-								break;
-							}
-
-							break;
-						}
-
 						case WIRELESS_REMOTE:
 						{
 							while( 1 )
@@ -1904,88 +2106,6 @@ int main( void )
 							}
 							break;
 
-						}
-
-						case BATTERY_CONDITION:
-						{
-#ifdef NUMBERS
-//							PlaySilence( 100, 0 );
-//							PlaySample24khz( BatteryAtData, 0, BATTERY_AT_SIZE, 1 );
-//							PlayTimeOrPercent( Menu_Array[ BATTERY_CONDITION ].context * 60 * 1000, PLAY_PERCENT );
-//							InitAudio();
-#endif
-							break;
-						}
-
-						case TOTAL_GATE_DROPS:
-						{
-							sprintf( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "%d", Menu_Array[ TOTAL_GATE_DROPS ].context );
-							WriteLCD_LineCentered( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], 1 );
-							UpdateLCD();
-
-							break;
-						}
-
-						case CLEAR_TOTAL_GATE_DROPS:
-						{
-							if( Menu_Array[ TOTAL_GATE_DROPS ].context != 0 )
-							{
-								WriteLCD_LineCentered( "Are you sure?", 0 );
-								WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
-								UpdateLCD();
-
-								Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context = 0;
-
-								while( 1 )
-								{
-									// wait for input
-									do
-									{	encoder_delta = ReadInputs( &inputs, 0 );
-
-									} while ( encoder_delta == 0 && inputs == 0 );
-
-									if( encoder_delta == -1 )
-									{
-										Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context = 1;
-										WriteLCD_LineCentered( "\1 YES \2/ no", 1 );
-										UpdateLCD();
-									}
-									else if( encoder_delta == 1 )
-									{
-										Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context = 0;
-										WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
-										UpdateLCD();
-									}
-
-									if( inputs == BUTTON_E )
-									{
-										if( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context == 0 )
-										{
-											break;
-										}
-										else if( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context > 0 )
-										{
-											SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "0" );
-
-											Menu_Array[ TOTAL_GATE_DROPS ].context = 0;
-
-											SaveEverythingToFlashMemory();
-											ReadInputs( &inputs, 0 );
-											inputs = 0;
-
-											WriteLCD_LineCentered( "Total Gate Drops", 0 );
-											WriteLCD_LineCentered( "Zeroed", 1 );
-											UpdateLCD();
-
-											Delay( 2000 );
-											menu_index = TOTAL_GATE_DROPS;
-										}
-										break;
-									}
-									continue;
-								}
-							}
-							break;
 						}
 
 						case RELEASE_DEVICE:
@@ -2047,6 +2167,16 @@ int main( void )
  */
 			case WAIT_FOR_SENSORS:
 			{
+				if( Cancel_Timing == 1 )
+				{
+					Timing_Active = 0;
+
+					// go to main menu
+					Device_State = WAIT_FOR_USER;
+					break;
+
+				}
+
 				int inputs = 0;
 
 				unsigned int sensor_1 = 0;
@@ -2305,6 +2435,8 @@ int main( void )
 
 void DropGate( void )
 {
+	Dropping_Gate	  = 1;
+
 	Cadence_Cancelled = 0;
 
 #ifdef CADENCE
@@ -2400,6 +2532,7 @@ void DropGate( void )
 
 	if( Cadence_Cancelled == 1 )
 	{
+		Cancel_Timing 	  = 1;
 		Cadence_Cancelled = 0;
 
 		WriteLCD_LineCentered( "GATE DROP ABORTED", 0 );
@@ -2415,15 +2548,15 @@ void DropGate( void )
 	{
 		if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
 		{
-			PulseSolenoid( 500 );	// pulsed after delay processed by interrupt 6
+			PulseSolenoid( 500 );	// pulsed after gate start delay processed by interrupt 6
 		}
 		else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET )
 		{
-			TurnMagnetOff();  // turned off after delay processed by interrupt 6
+			StartGatePowerOffTimer();  // gate power turned off after Gate_Drop_Delay processed by interrupt 6
 		}
 		else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
 		{
-			// TODO: implement this
+			StartGatePowerOffTimer();  // gate turned off after Gate_Drop_Delay processed by interrupt 6
 		}
 
 
@@ -2502,6 +2635,8 @@ void DropGate( void )
 		}
 	}
 #endif
+
+	Dropping_Gate = 0;
 }
 
 void DoReactionGame( const unsigned int player_count )
@@ -3807,7 +3942,8 @@ void PlayDropGateAnimation( void )
 	}
 
 	// heh, scroll the bottom line after drop gate text scrolls away
-	char line[ DISPLAY_WIDTH ] = "    Press button!   ";
+	char line[ DISPLAY_WIDTH ];
+	strcpy( line, display_memory_cache[1] );
 
 	for( i = 0; i < DISPLAY_WIDTH; i++ )
 	{
@@ -4098,19 +4234,17 @@ void TIM6_DAC_IRQHandler()
 			{
 				Solenoid_Pulse_Time -= 1;
 
-				GPIO_SetBits( GPIOA, GPIO_Pin_2 );	// gate 1 ON
-				GPIO_SetBits( GPIOA, GPIO_Pin_1 );	// gate 2 ON
+				SetGatePowerOn();
 			}
 			else
 			{
-				GPIO_ResetBits( GPIOA, GPIO_Pin_2 ); // gate 1 OFF
-				GPIO_ResetBits( GPIOA, GPIO_Pin_1 ); // gate 2 OFF
+				SetGatePowerOff();
 
 				Pulse_Solenoid = 0;
 			}
 		}
 	}
-	else if( Turn_Magnet_Off == 1 )
+	else if( Gate_Power_Off_Pending == 1 )
 	{
 		if( Gate_Drop_Delay != 0 )
 		{
@@ -4118,43 +4252,29 @@ void TIM6_DAC_IRQHandler()
 		}
 		else
 		{
-			GPIO_ResetBits( GPIOA, GPIO_Pin_2 ); // gate 1 OFF
-			GPIO_ResetBits( GPIOA, GPIO_Pin_1 ); // gate 2 OFF
-
-			Turn_Magnet_Off = 0;
-			Magnet_On 		= 0;
+			SetGatePowerOff();
 		}
 	}
 
 	// make sure not to abort once the lights and tones actually start
-	if( Pulse_Solenoid == 1 || Turn_Magnet_Off == 1 ) return;
+	if( Pulse_Solenoid == 1 || Gate_Power_Off_Pending == 1 ) return;
 
-
-	if( (GPIOB->IDR & 0x8000) && Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED )
-	{ // Handle aborting the cadence when BUTTON_C is pressed from the RF remote
-		Cadence_Cancelled = 1;
-
-		if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
+	// abort if any button is pressed only when in drop gate state
+	if( Dropping_Gate == 1 && Cadence_Cancelled == 0 )
+	{
+		if( (GPIOE->IDR & 0x0010) == 0 || ( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED &&
+										  ((GPIOA->IDR & 0x0001) || (GPIOB->IDR & 0x4000) || (GPIOB->IDR & 0x8000) || (GPIOD->IDR & 0x0100))) )
 		{
-			Pulse_Solenoid	 = 0;
+			Cadence_Cancelled = 1;
 
-			Solenoid_Pulse_Time = 0;
+			if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
+			{
+				Pulse_Solenoid	 	= 0;
+				Solenoid_Pulse_Time = 0;
+			}
 
-			GPIO_ResetBits( GPIOA, GPIO_Pin_2 ); // gate 1 OFF
-			GPIO_ResetBits( GPIOA, GPIO_Pin_1 ); // gate 2 OFF
+			return;
 		}
-		if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET )
-		{
-			Magnet_On 		= 1;
-
-			Turn_Magnet_Off = 0;
-		}
-		if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
-		{
-			// TODO: implement this
-		}
-
-		return;
 	}
 }
 
@@ -4167,11 +4287,29 @@ void PulseSolenoid( const unsigned int pulse_time )
 	Pulse_Solenoid  = 1;
 }
 
-void TurnMagnetOff( void )
+void StartGatePowerOffTimer( void )
 {
 	Gate_Drop_Delay	= Menu_Array[ GATE_DROPS_ON ].context * 10;
 
-	Turn_Magnet_Off = 1;
+	Gate_Power_Off_Pending = 1;
+}
+
+void SetGatePowerOff( void )
+{
+	GPIO_ResetBits( GPIOA, GPIO_Pin_2 ); // gate 1 OFF
+	GPIO_ResetBits( GPIOA, GPIO_Pin_1 ); // gate 2 OFF
+
+	Gate_Power_State 	   	= POWER_OFF;
+	Gate_Power_Off_Pending 	= 0;
+}
+
+void SetGatePowerOn( void )
+{
+	GPIO_SetBits( GPIOA, GPIO_Pin_2 );	// gate 1 ON
+	GPIO_SetBits( GPIOA, GPIO_Pin_1 );	// gate 2 ON
+
+	Gate_Power_State 		= POWER_ON;
+	Gate_Power_Off_Pending 	= 0;
 }
 
 void ShortDelay( const unsigned int ticks )
@@ -4481,7 +4619,7 @@ float BatteryLevel( const unsigned int display_level )
 	// 85% battery level is 13vdc
 
 	// recharge at battery_level == 290,000
-	if( charge_level < 290000.0f || display_level == 1 )
+	if( charge_level < 285000.0f || display_level == 1 )
 	{
 		// write condition to bottom line and update the display to show new condition
 		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 0 );
@@ -4869,6 +5007,16 @@ void PlayDigit( const unsigned int number )
 
 void InitMenus( void )
 {
+	Menu_Array[ RAISE_GATE ].menu_type		= WAIT_FOR_BUTTON;
+	Menu_Array[ RAISE_GATE ].context			= 0;
+	Menu_Array[ RAISE_GATE ].sub_context_1	= 0;
+	Menu_Array[ RAISE_GATE ].sub_context_2	= 0;
+	Menu_Array[ RAISE_GATE ].sub_context_3	= 0;
+	Menu_Array[ RAISE_GATE ].item_count		= 1;
+	Menu_Array[ RAISE_GATE ].current_item	= 0;
+	SetMenuText( Menu_Array[ RAISE_GATE ].caption,	"RAISE GATE" );
+	SetMenuText( Menu_Array[ RAISE_GATE ].item[ 0 ],	"Press button" );
+
 	Menu_Array[ DROP_GATE ].menu_type		= WAIT_FOR_BUTTON;
 	Menu_Array[ DROP_GATE ].context			= 0;
 	Menu_Array[ DROP_GATE ].sub_context_1	= 0;
@@ -4877,7 +5025,7 @@ void InitMenus( void )
 	Menu_Array[ DROP_GATE ].item_count		= 1;
 	Menu_Array[ DROP_GATE ].current_item	= 0;
 	SetMenuText( Menu_Array[ DROP_GATE ].caption,	"DROP GATE" );
-	SetMenuText( Menu_Array[ DROP_GATE ].item[ 0 ],	"Press button!" );
+	SetMenuText( Menu_Array[ DROP_GATE ].item[ 0 ],	"Press button" );
 
 	Menu_Array[ ENERGIZE_MAGNET ].menu_type		= WAIT_FOR_BUTTON;
 	Menu_Array[ ENERGIZE_MAGNET ].context		= 0;
@@ -4899,16 +5047,16 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].caption, "TOTAL GATE DROPS" );
 	sprintf( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "%d", Menu_Array[ TOTAL_GATE_DROPS ].context );
 
-	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].menu_type		= VIEW_LIST;
-	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context		= 0;
-	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].sub_context_1	= 0;
-	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].sub_context_2	= 0;
-	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].sub_context_3	= 0;
-	Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].item_count	= 1;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].menu_type		= VIEW_LIST;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context		= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_1	= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_2	= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_3	= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].item_count	= 1;
 	Menu_Array[ CLEAR_TIMER_HISTORY ].current_item	= 0;
-	SetMenuText( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].caption,   "ZERO GATE DROP COUNT" );
-	SetMenuText( Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
-	ItemCopy( CLEAR_TOTAL_GATE_DROPS, Menu_Array[ CLEAR_TOTAL_GATE_DROPS ].context, 0, 1 );
+	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].caption,   "ZERO GATE DROP COUNT" );
+	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
+	ItemCopy( ZERO_TOTAL_GATE_DROPS, Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context, 0, 1 );
 
 	Menu_Array[ GATE_START_DELAY ].menu_type	= EDIT_VALUE;
 	Menu_Array[ GATE_START_DELAY ].context		= 0;
@@ -5096,6 +5244,28 @@ void InitMenus( void )
 
 	// initialize timing histories array
 	ClearTimingHistories();
+}
+
+void SetGateMenuState( void )
+{
+	if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+	{
+		if( Gate_Power_State == POWER_OFF )
+			Menu_Index = RAISE_GATE;
+		else
+			Menu_Index = DROP_GATE;
+	}
+	else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET )
+	{
+		if( Gate_Power_State == POWER_OFF )
+			Menu_Index = ENERGIZE_MAGNET;
+		else
+			Menu_Index = DROP_GATE;
+	}
+	else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
+	{
+		Menu_Index = DROP_GATE;
+	}
 }
 
 void ClearTimingHistories( void )
