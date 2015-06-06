@@ -2367,10 +2367,11 @@ int main( void )
 
 						if( sensor_1A == 0 || sensor_1B == 0 || sensor_2A == 0 || sensor_2B == 0 ) continue;
 
+						unsigned int elapsed_time_1 = 0, speed_integer_1 = 0, speed_fractional_1 = 0;
+						unsigned int elapsed_time_2 = 0, speed_integer_2 = 0, speed_fractional_2 = 0;
+
 						if( Cancel_Timing == 0 )
 						{
-							unsigned int elapsed_time_1, speed_integer_1, speed_fractional_1;
-							unsigned int elapsed_time_2, speed_integer_2, speed_fractional_2;
 							float speed_1, speed_2;
 
 							CalculateSpeed( sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, & elapsed_time_1, & speed_1, & speed_integer_1, & speed_fractional_1 );
@@ -2394,8 +2395,43 @@ int main( void )
 							}
 
 							UpdateLCD();
+#ifdef NUMBERS
+							if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+							{
+								int first_time, second_time;
 
-							Delay( 5000 );
+								if( elapsed_time_1 > elapsed_time_2 )
+								{
+									first_time	= 0;
+									second_time = 1;
+								}
+								else
+								{
+									first_time	= 1;
+									second_time = 0;
+								}
+
+								const int time_start = 8400;
+								const int time_size  = 7500;
+
+								PlaySilence( 100, 1 );
+								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+								PlayDigit( 1 );
+								PlayTimeOrPercent( Timer_History[ first_time ].elapsed_time / 10, PLAY_TIME );
+								PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+								PlaySpeed( Timer_History[ first_time ].speed_integer, Timer_History[ first_time ].speed_fractional );
+
+
+								PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+								PlayDigit( 2 );
+								PlayTimeOrPercent( Timer_History[ second_time ].elapsed_time / 10, PLAY_TIME );
+								PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+								PlaySpeed( Timer_History[ second_time ].speed_integer, Timer_History[ second_time ].speed_fractional );
+
+								InitAudio();
+							}
+#endif
+							Delay( 3000 );
 						}
 						break;
 					}
@@ -2559,7 +2595,6 @@ void DropGate( void )
 			StartGatePowerOffTimer();  // gate turned off after Gate_Drop_Delay processed by interrupt 6
 		}
 
-
 		// play the cadence tones and light the lights
 		GPIO_SetBits( GPIOD, GPIO_Pin_12 );	// RED light ON
 		PlayTone( 60, Square632HzData, SQUARE_632HZ_SIZE, 1 );
@@ -2647,6 +2682,8 @@ void DoReactionGame( const unsigned int player_count )
 
 	unsigned int p1_avg_total = 0;
 	unsigned int p2_avg_total = 0;
+
+	Timing_Active = 1;
 
 	while( 1 )
 	{
@@ -2921,6 +2958,9 @@ void DoReactionGame( const unsigned int player_count )
 
 		WaitForButtonUp();
 	}
+
+	Start_Reaction_Timing = 0;
+	Timing_Active 		  = 0;
 }
 
 void LightTestCycle( void )
@@ -3299,22 +3339,83 @@ int DoTimeAndSpeed( const unsigned int aux1_option,
 			ProcessTimeAndSpeed( speed_config, elapsed_time, speed, speed_integer, speed_fractional );
 			ProcessElapsedTimer( time_config, time_sensor_A, time_sensor_B );
 
-			WriteLCD_LineCentered( Timer_History[ 1 ].time_speed_string, 0 );
 			WriteLCD_LineCentered( Timer_History[ 0 ].time_string, 1 );
+			WriteLCD_LineCentered( Timer_History[ 1 ].time_speed_string, 0 );
 		}
 		else
 		{
-			ProcessElapsedTimer( time_config, time_sensor_A, time_sensor_B );
 			ProcessTimeAndSpeed( speed_config, elapsed_time, speed, speed_integer, speed_fractional );
+			ProcessElapsedTimer( time_config, time_sensor_A, time_sensor_B );
 
-			WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 0 );
-			WriteLCD_LineCentered( Timer_History[ 1 ].time_string, 1 );
+			WriteLCD_LineCentered( Timer_History[ 0 ].time_string, 0 );
+			WriteLCD_LineCentered( Timer_History[ 1 ].time_speed_string, 1 );
 		}
 
 		UpdateLCD();
-
-		Delay( 4000 );
 	}
+
+#ifdef NUMBERS
+	if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+	{
+		const int time_start = 8400;
+		const int time_size  = 7500;
+
+		if( ( time_sensor > speed_sensor_A ) || time_sensor > speed_sensor_B )
+		{
+			PlaySilence( 100, 1 );
+			PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+			PlayDigit( 1 );
+			PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+			PlaySilence( 1, 0 );
+
+			if( Timer_History[ 0 ].is_a_speed != 0 )
+			{
+				PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+				PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+			}
+
+			PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+			PlayDigit( 2 );
+			PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
+			PlaySilence( 1, 0 );
+
+			if( Timer_History[ 1 ].is_a_speed != 0 )
+			{
+				PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+				PlaySpeed( Timer_History[ 1 ].speed_integer, Timer_History[ 1 ].speed_fractional );
+			}
+		}
+		else
+		{
+			PlaySilence( 100, 1 );
+			PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+			PlayDigit( 1 );
+			PlayTimeOrPercent( Timer_History[ 1 ].elapsed_time / 10, PLAY_TIME );
+			PlaySilence( 1, 0 );
+
+			if( Timer_History[ 1 ].is_a_speed != 0 )
+			{
+				PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+				PlaySpeed( Timer_History[ 1 ].speed_integer, Timer_History[ 1 ].speed_fractional );
+			}
+
+			PlaySample24khz( LastTimeWasData + time_start, 0, time_size, 1 );
+			PlayDigit( 2 );
+			PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+			PlaySilence( 1, 0 );
+
+			if( Timer_History[ 0 ].is_a_speed != 0 )
+			{
+				PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+				PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+			}
+		}
+
+		InitAudio();
+	}
+#endif
+
+	Delay( 2000 );
 
 	return 0;
 }
@@ -3335,8 +3436,6 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 		else
 			WriteLCD_LineCentered( "AUX 2 sensor faulty", 1 );
 		UpdateLCD();
-
-		Delay( 3000 );
 
 		return 0;
 	}
@@ -3362,9 +3461,25 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 		WriteLCD_LineCentered( elapsed_string, 0 );
 		WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
 		UpdateLCD();
-
-		Delay( 3000 );
 	}
+
+#ifdef NUMBERS
+	if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+	{
+		PlaySilence( 100, 0 );
+		PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+		PlaySilence( 1, 0 );
+
+		if( Timer_History[ 0 ].is_a_speed != 0 )
+		{
+			PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+			PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+		}
+		InitAudio();
+	}
+#endif
+
+	Delay( 3000 );
 
 	return 0;
 }
@@ -3501,7 +3616,7 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 
 				if( elapsed_time > 0 )
 				{
-					WriteLCD_LineCentered( "LAST TIME AND SPEED", 0 );
+					WriteLCD_LineCentered( "TIME AND SPEED", 0 );
 					WriteLCD_LineCentered( Timer_History[ 0 ].time_speed_string, 1 );
 					UpdateLCD();
 
@@ -3509,7 +3624,6 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 					if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
 					{
 						PlaySilence( 100, 1 );
-						PlaySample24khz( LastTimeWasData, 0, LAST_TIME_WAS_SIZE, 1 );
 						PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
 
 						PlaySample24khz( AtData, 0, AT_SIZE, 1 );
@@ -3520,7 +3634,7 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 				}
 				else
 				{
-					WriteLCD_LineCentered( "LAST SPEED", 0 );
+					WriteLCD_LineCentered( "SPEED", 0 );
 					WriteLCD_LineCentered( Timer_History[ 0 ].speed_string, 1 );
 					UpdateLCD();
 
