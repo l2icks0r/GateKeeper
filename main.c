@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define CADENCE
-#define NUMBERS
+//#define CADENCE
+//#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -241,6 +241,8 @@ enum MENUS	   { DROP_GATE = 0,
 
 				 RELEASE_DEVICE,
 
+				 CALIBRATE_AIR_RAM,
+
 				 MENUS_SIZE };
 
 enum AUX_OPTIONS				{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SPRINT_TIMER = 4, AUX_GATE_SWITCH = 5, AUX_SENSOR_SPACING = 6, AUX_SENSOR_TYPE = 7, AUX_LAP_COUNT = 8 };
@@ -249,7 +251,7 @@ enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNC
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
 enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
 enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_UP_DOWN = 2, TEST_LIGHTS_DARK_LIGHT = 3, TEST_LIGHTS_RANDOM = 4 };
-
+enum CALIBRATE_AIR_RAM_OPTIONS	{ CALIBRATE_AIR_RAM_PULSE_DELAY = 1, CALIBRATE_AIR_RAM_PULSE_PERIOD = 2, CALIBRATE_AIR_RAM_RAISE = 3, CALIBRATE_AIR_RAM_DROP = 4 };
 
 // sub-menu options for auxiliary sensor type
 enum SENSOR_OPTIONS			{ RIBBON_SWITCH = 0, INFRARED = 1, LASER = 2, PROXIMITY = 3, WIRELESS = 4, SENSOR_OPTIONS_SIZE = 5 };
@@ -467,7 +469,7 @@ int main( void )
 
 				// write splash text
 				WriteLCD_LineCentered( "** RRP BMX GATES **", 0 );
-				WriteLCD_LineCentered( "Epicenter v0.9.2", 1 );
+				WriteLCD_LineCentered( "Epicenter v0.9.3", 1 );
 				UpdateLCD();
 
 				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
@@ -733,7 +735,21 @@ int main( void )
 							if( encoder_delta > 0 ) Menu_Index = CADENCE_VOLUME;
 							else					Menu_Index = TOTAL_GATE_DROPS;
 						}
-						else if( Menu_Index == RELEASE_DEVICE && Gate_Power_State == POWER_ON ) Menu_Index = WIRELESS_REMOTE;
+						else if( Menu_Index == RELEASE_DEVICE && Gate_Power_State == POWER_ON )
+						{
+							Menu_Index = WIRELESS_REMOTE;
+						}
+						else if( Menu_Index == CALIBRATE_AIR_RAM && Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM )
+						{
+							if( Gate_Power_State == POWER_ON )
+							{
+								Menu_Index = WIRELESS_REMOTE;
+							}
+							else
+							{
+								Menu_Index = RELEASE_DEVICE;
+							}
+						}
 
 
 						// if the encoder wheel moved then display the new menu text
@@ -947,7 +963,7 @@ int main( void )
 
 							SetGatePowerOn();
 
-							Delay( 2500 );
+							Delay( 1875 );
 
 							Menu_Index = DROP_GATE;
 
@@ -2271,6 +2287,69 @@ int main( void )
 
 								break;
 							}
+							break;
+						}
+
+						case CALIBRATE_AIR_RAM:
+						{
+							while( 1 )
+							{
+								WriteLCD_LineCentered( Menu_Array[ CALIBRATE_AIR_RAM ].item[ Menu_Array[ CALIBRATE_AIR_RAM ].context ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( &inputs, 1 );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									const int new_item = Menu_Array[ CALIBRATE_AIR_RAM ].current_item + encoder_delta;
+
+									if( new_item > Menu_Array[ CALIBRATE_AIR_RAM ].item_count ) continue;
+									if( new_item < 1 ) continue;
+
+									Menu_Array[ CALIBRATE_AIR_RAM ].current_item = new_item;
+
+									switch( new_item )
+									{
+										case 1: { Menu_Array[ CALIBRATE_AIR_RAM ].context = CALIBRATE_AIR_RAM_PULSE_DELAY; 	break;	}
+										case 2: { Menu_Array[ CALIBRATE_AIR_RAM ].context = CALIBRATE_AIR_RAM_PULSE_PERIOD;	break;	}
+										case 3: { Menu_Array[ CALIBRATE_AIR_RAM ].context = CALIBRATE_AIR_RAM_RAISE;		break;	}
+										case 4: { Menu_Array[ CALIBRATE_AIR_RAM ].context = CALIBRATE_AIR_RAM_DROP;			break;	}
+									}
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								if( Menu_Array[ CALIBRATE_AIR_RAM ].context == CALIBRATE_AIR_RAM_PULSE_DELAY )
+								{
+
+								}
+								else if( Menu_Array[ CALIBRATE_AIR_RAM ].context == CALIBRATE_AIR_RAM_PULSE_PERIOD )
+								{
+
+								}
+								else if( Menu_Array[ CALIBRATE_AIR_RAM ].context == CALIBRATE_AIR_RAM_RAISE )
+								{
+
+								}
+								else if( Menu_Array[ CALIBRATE_AIR_RAM ].context == CALIBRATE_AIR_RAM_DROP )
+								{
+
+								}
+
+								ItemCopy( CALIBRATE_AIR_RAM, Menu_Array[ CALIBRATE_AIR_RAM ].context, 0, 1 );
+								WriteLCD_LineCentered( Menu_Array[ CALIBRATE_AIR_RAM ].caption, 0 );
+								UpdateLCD();
+
+								break;
+							}
+
 							break;
 						}
 					}
@@ -5255,16 +5334,6 @@ void PlayDigit( const unsigned int number )
 
 void InitMenus( void )
 {
-	Menu_Array[ RAISE_GATE ].menu_type		= WAIT_FOR_BUTTON;
-	Menu_Array[ RAISE_GATE ].context			= 0;
-	Menu_Array[ RAISE_GATE ].sub_context_1	= 0;
-	Menu_Array[ RAISE_GATE ].sub_context_2	= 0;
-	Menu_Array[ RAISE_GATE ].sub_context_3	= 0;
-	Menu_Array[ RAISE_GATE ].item_count		= 1;
-	Menu_Array[ RAISE_GATE ].current_item	= 0;
-	SetMenuText( Menu_Array[ RAISE_GATE ].caption,	"RAISE GATE" );
-	SetMenuText( Menu_Array[ RAISE_GATE ].item[ 0 ],	"Press button" );
-
 	Menu_Array[ DROP_GATE ].menu_type		= WAIT_FOR_BUTTON;
 	Menu_Array[ DROP_GATE ].context			= 0;
 	Menu_Array[ DROP_GATE ].sub_context_1	= 0;
@@ -5275,6 +5344,16 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ DROP_GATE ].caption,	"DROP GATE" );
 	SetMenuText( Menu_Array[ DROP_GATE ].item[ 0 ],	"Press button" );
 
+	Menu_Array[ RAISE_GATE ].menu_type		= WAIT_FOR_BUTTON;
+	Menu_Array[ RAISE_GATE ].context		= 0;
+	Menu_Array[ RAISE_GATE ].sub_context_1	= 0;
+	Menu_Array[ RAISE_GATE ].sub_context_2	= 0;
+	Menu_Array[ RAISE_GATE ].sub_context_3	= 0;
+	Menu_Array[ RAISE_GATE ].item_count		= 1;
+	Menu_Array[ RAISE_GATE ].current_item	= 0;
+	SetMenuText( Menu_Array[ RAISE_GATE ].caption,	"RAISE GATE" );
+	SetMenuText( Menu_Array[ RAISE_GATE ].item[ 0 ],"Press button" );
+
 	Menu_Array[ ENERGIZE_MAGNET ].menu_type		= WAIT_FOR_BUTTON;
 	Menu_Array[ ENERGIZE_MAGNET ].context		= 0;
 	Menu_Array[ ENERGIZE_MAGNET ].sub_context_1	= 0;
@@ -5284,27 +5363,6 @@ void InitMenus( void )
 	Menu_Array[ ENERGIZE_MAGNET ].current_item  = 0;
 	SetMenuText( Menu_Array[ ENERGIZE_MAGNET ].caption,	  "ENERGIZE MAGNET" );
 	SetMenuText( Menu_Array[ ENERGIZE_MAGNET ].item[ 0 ], "Press button" );
-
-	Menu_Array[ TOTAL_GATE_DROPS ].menu_type	= NO_INPUT;
-	Menu_Array[ TOTAL_GATE_DROPS ].context		= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_1= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_2= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_3= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].item_count	= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].current_item = 0;
-	SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].caption, "TOTAL GATE DROPS" );
-	sprintf( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "%d", Menu_Array[ TOTAL_GATE_DROPS ].context );
-
-	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].menu_type		= VIEW_LIST;
-	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context		= 0;
-	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_1	= 0;
-	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_2	= 0;
-	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_3	= 0;
-	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].item_count	= 1;
-	Menu_Array[ CLEAR_TIMER_HISTORY ].current_item	= 0;
-	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].caption,   "ZERO GATE DROP COUNT" );
-	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
-	ItemCopy( ZERO_TOTAL_GATE_DROPS, Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context, 0, 1 );
 
 	Menu_Array[ GATE_START_DELAY ].menu_type	= EDIT_VALUE;
 	Menu_Array[ GATE_START_DELAY ].context		= 0;
@@ -5336,25 +5394,12 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ GATE_DROPS_ON ].caption, "GATE DROPS ON" );
 	sprintf( Menu_Array[ GATE_DROPS_ON ].item[ 0 ],	  "Green" );
 
-	Menu_Array[ AUTO_ANNOUNCE_TIMES ].menu_type		= EDIT_CHOICE;
-	Menu_Array[ AUTO_ANNOUNCE_TIMES ].context 		= AUTO_ANNOUNCE_TIMES_ENABLED;
-	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_1 = 0;
-	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_2 = 0;
-	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_3 = 0;
-	Menu_Array[ AUTO_ANNOUNCE_TIMES ].item_count	= 2;
-	Menu_Array[ AUTO_ANNOUNCE_TIMES ].current_item	= 1;
-	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].caption,	  "AUTO ANNOUNCE TIMES" );
-	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ], SPACES );
-	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_DISABLED ], "\1 Disabled \2" );
-	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_ENABLED ] , "\1 Enabled \2" );
-	ItemCopy( AUTO_ANNOUNCE_TIMES, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context, 0, 1 );
-
 	// sub menu text for auxiliary sensor type options
-	strcpy( Sensor_Text[ RIBBON_SWITCH ],	"\1 Ribbon Switch \2" );
-	strcpy( Sensor_Text[ INFRARED ], 		"\1 Infrared \2" );
-	strcpy( Sensor_Text[ LASER ], 			"\1 Laser \2" );
-	strcpy( Sensor_Text[ PROXIMITY ], 		"\1 Proximity \2" );
-	strcpy( Sensor_Text[ WIRELESS ], 		"\1 Wireless \2" );
+	strcpy( Sensor_Text[ RIBBON_SWITCH 	],	"\1 Ribbon Switch \2"	);
+	strcpy( Sensor_Text[ INFRARED 		],	"\1 Infrared \2" 		);
+	strcpy( Sensor_Text[ LASER 			],	"\1 Laser \2" 			);
+	strcpy( Sensor_Text[ PROXIMITY 		],	"\1 Proximity \2" 		);
+	strcpy( Sensor_Text[ WIRELESS 		],	"\1 Wireless \2" 		);
 
 	Menu_Array[ AUX_1_CONFIG ].menu_type	= EDIT_CHOICE;
 	Menu_Array[ AUX_1_CONFIG ].context 		= AUX_DISABLED;
@@ -5365,14 +5410,14 @@ void InitMenus( void )
 	Menu_Array[ AUX_1_CONFIG ].current_item	= 1;
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].caption, 	"AUXILIARY 1" );
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ 0 ],	SPACES );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_DISABLED ],	  	"\1 Disabled \2" );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_TIME ],		 	"\1 Time \2" );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_TIME_SPEED ],		"\1 Time + Speed \2" );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SPRINT_TIMER ],	"\1 Sprint Timer \2" );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_GATE_SWITCH ],	"\1 Gate Drop Switch \2" );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SENSOR_SPACING ],	"\1Set Sensor Spacing\2" );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SENSOR_TYPE ],  	"\1 Set Sensor Type \2" );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_LAP_COUNT ],  	"\1 Set Lap Count \2" );
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_DISABLED 		 ],	"\1 Disabled \2" 		);
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_TIME 			 ],	"\1 Time \2" 			);
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_TIME_SPEED 	 ],	"\1 Time + Speed \2" 	);
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SPRINT_TIMER 	 ],	"\1 Sprint Timer \2" 	);
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_GATE_SWITCH 	 ],	"\1 Gate Drop Switch \2");
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SENSOR_SPACING ],	"\1Set Sensor Spacing\2");
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SENSOR_TYPE 	 ], "\1 Set Sensor Type \2" );
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_LAP_COUNT 	 ], "\1 Set Lap Count \2" 	);
 	ItemCopy( AUX_1_CONFIG, Menu_Array[ AUX_1_CONFIG ].context, 0, 1 );
 	Aux_1_Sensor_Spacing = Menu_Array[ AUX_1_CONFIG ].sub_context_1;
 
@@ -5385,14 +5430,14 @@ void InitMenus( void )
 	Menu_Array[ AUX_2_CONFIG ].current_item	= 1;
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].caption, 	"AUXILIARY 2" );
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ 0 ],	SPACES );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_DISABLED ],		"\1 Disabled \2" );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_TIME ],			"\1 Time \2" );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_TIME_SPEED ],		"\1 Time + Speed \2" );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SPRINT_TIMER ],	"\1 Sprint Timer \2" );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_GATE_SWITCH ],	"\1 Gate Drop Switch \2" );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SENSOR_SPACING ],	"\1Set Sensor Spacing\2" );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SENSOR_TYPE ],  	"\1 Set Sensor Type \2" );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_LAP_COUNT ],  	"\1 Set Lap Count \2" );
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_DISABLED		 ],	"\1 Disabled \2" 		);
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_TIME 			 ],	"\1 Time \2" 			);
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_TIME_SPEED	 ],	"\1 Time + Speed \2" 	);
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SPRINT_TIMER	 ],	"\1 Sprint Timer \2" 	);
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_GATE_SWITCH	 ],	"\1 Gate Drop Switch \2");
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SENSOR_SPACING ],	"\1Set Sensor Spacing\2");
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SENSOR_TYPE 	 ], "\1 Set Sensor Type \2" );
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_LAP_COUNT 	 ], "\1 Set Lap Count \2" 	);
 	ItemCopy( AUX_2_CONFIG, Menu_Array[ AUX_2_CONFIG ].context, 0, 1 );
 	Aux_2_Sensor_Spacing = Menu_Array[ AUX_2_CONFIG ].sub_context_1;
 
@@ -5418,35 +5463,39 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ CLEAR_TIMER_HISTORY ].item[ 0 ], "Press Button" );
 	ItemCopy( CLEAR_TIMER_HISTORY, Menu_Array[ CLEAR_TIMER_HISTORY ].context, 0, 1 );
 
-	Menu_Array[ REACTION_GAME ].menu_type	  = EDIT_CHOICE;
-	Menu_Array[ REACTION_GAME ].context 	  = REACTION_GAME_ONE_PLAYER;
-	Menu_Array[ REACTION_GAME ].sub_context_1 = 0;
-	Menu_Array[ REACTION_GAME ].sub_context_2 = 0;
-	Menu_Array[ REACTION_GAME ].sub_context_3 = 0;
-	Menu_Array[ REACTION_GAME ].item_count 	  = 4;
-	Menu_Array[ REACTION_GAME ].current_item  = 1;
-	SetMenuText( Menu_Array[ REACTION_GAME ].caption, 	"REACTION GAME" );
-	SetMenuText( Menu_Array[ REACTION_GAME ].item[ 0 ],	SPACES );
-	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_ONE_PLAYER  ],	"\1 One Player \2"  );
-	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_TWO_PLAYER  ],	"\1 Two Player \2"  );
-	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_VIEW_STATS  ],	"\1 View Stats \2"  );
-	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_CLEAR_STATS ],	"\1 Clear Stats \2" );
-	ItemCopy( REACTION_GAME, Menu_Array[ REACTION_GAME ].context, 0, 1 );
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].menu_type		= EDIT_CHOICE;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].context 		= AUTO_ANNOUNCE_TIMES_ENABLED;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_1 = 0;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_2 = 0;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_3 = 0;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].item_count	= 2;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].current_item	= 1;
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].caption,	  "AUTO ANNOUNCE TIMES" );
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ], SPACES );
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_DISABLED ], "\1 Disabled \2" );
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_ENABLED  ], "\1 Enabled \2"  );
+	ItemCopy( AUTO_ANNOUNCE_TIMES, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context, 0, 1 );
 
-	Menu_Array[ TEST_LIGHTS ].menu_type	  	= EDIT_CHOICE;
-	Menu_Array[ TEST_LIGHTS ].context 	  	= TEST_LIGHTS_ALL_ON;
-	Menu_Array[ TEST_LIGHTS ].sub_context_1 = 0;
-	Menu_Array[ TEST_LIGHTS ].sub_context_2 = 0;
-	Menu_Array[ TEST_LIGHTS ].sub_context_3 = 0;
-	Menu_Array[ TEST_LIGHTS ].item_count 	= 2;	// TODO: Implement the other patterns!
-	Menu_Array[ TEST_LIGHTS ].current_item  = 1;
-	SetMenuText( Menu_Array[ TEST_LIGHTS ].caption, 	"TEST LIGHTS" );
-	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ 0 ],	SPACES );
-	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_ALL_ON   	],	"\1 All Lights On \2"  	);
-	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_UP_DOWN  	],	"\1 Up/Down Pattern \2" );
-	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_DARK_LIGHT ],	"\1 Fade To Black \2"  );
-	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_RANDOM		],	"\1 Random \2" );
-	ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
+	Menu_Array[ TOTAL_GATE_DROPS ].menu_type	= NO_INPUT;
+	Menu_Array[ TOTAL_GATE_DROPS ].context		= 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_1= 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_2= 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_3= 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].item_count	= 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].current_item = 0;
+	SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].caption, "TOTAL GATE DROPS" );
+	sprintf( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "%d", Menu_Array[ TOTAL_GATE_DROPS ].context );
+
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].menu_type		= VIEW_LIST;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context			= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_1	= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_2	= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_3	= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].item_count	= 1;
+	Menu_Array[ CLEAR_TIMER_HISTORY ].current_item	= 0;
+	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].caption,   "ZERO GATE DROP COUNT" );
+	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
+	ItemCopy( ZERO_TOTAL_GATE_DROPS, Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context, 0, 1 );
 
 	Menu_Array[ CADENCE_VOLUME ].menu_type	  = EDIT_VALUE;
 	Menu_Array[ CADENCE_VOLUME ].context	  = 2;
@@ -5478,6 +5527,36 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ BATTERY_CONDITION ].caption,	"BATTERY CONDITION" );
 	sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ],	"%d%%", Menu_Array[ BATTERY_CONDITION ].context );
 
+	Menu_Array[ TEST_LIGHTS ].menu_type	  	= EDIT_CHOICE;
+	Menu_Array[ TEST_LIGHTS ].context 	  	= TEST_LIGHTS_ALL_ON;
+	Menu_Array[ TEST_LIGHTS ].sub_context_1 = 0;
+	Menu_Array[ TEST_LIGHTS ].sub_context_2 = 0;
+	Menu_Array[ TEST_LIGHTS ].sub_context_3 = 0;
+	Menu_Array[ TEST_LIGHTS ].item_count 	= 2;	// TODO: Implement the other patterns!
+	Menu_Array[ TEST_LIGHTS ].current_item  = 1;
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].caption, 	"TEST LIGHTS" );
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ 0 ],	SPACES );
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_ALL_ON   	],	"\1 All Lights On \2"  	);
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_UP_DOWN  	],	"\1 Up/Down Pattern \2" );
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_DARK_LIGHT ],	"\1 Fade To Black \2"	);
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_RANDOM		],	"\1 Random \2"			);
+	ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
+
+	Menu_Array[ REACTION_GAME ].menu_type	  = EDIT_CHOICE;
+	Menu_Array[ REACTION_GAME ].context 	  = REACTION_GAME_ONE_PLAYER;
+	Menu_Array[ REACTION_GAME ].sub_context_1 = 0;
+	Menu_Array[ REACTION_GAME ].sub_context_2 = 0;
+	Menu_Array[ REACTION_GAME ].sub_context_3 = 0;
+	Menu_Array[ REACTION_GAME ].item_count 	  = 4;
+	Menu_Array[ REACTION_GAME ].current_item  = 1;
+	SetMenuText( Menu_Array[ REACTION_GAME ].caption, 	"REACTION GAME" );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ 0 ],	SPACES );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_ONE_PLAYER  ],	"\1 One Player \2"  );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_TWO_PLAYER  ],	"\1 Two Player \2"  );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_VIEW_STATS  ],	"\1 View Stats \2"  );
+	SetMenuText( Menu_Array[ REACTION_GAME ].item[ REACTION_GAME_CLEAR_STATS ],	"\1 Clear Stats \2" );
+	ItemCopy( REACTION_GAME, Menu_Array[ REACTION_GAME ].context, 0, 1 );
+
 	Menu_Array[ WIRELESS_REMOTE ].menu_type		= EDIT_CHOICE;
 	Menu_Array[ WIRELESS_REMOTE ].context 		= WIRELESS_REMOTE_ENABLED;
 	Menu_Array[ WIRELESS_REMOTE ].sub_context_1 = 0;
@@ -5488,7 +5567,7 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ WIRELESS_REMOTE ].caption,	  "WIRELESS REMOTE" );
 	SetMenuText( Menu_Array[ WIRELESS_REMOTE ].item[ 0 ], SPACES );
 	SetMenuText( Menu_Array[ WIRELESS_REMOTE ].item[ WIRELESS_REMOTE_DISABLED ], "\1 Disabled \2" );
-	SetMenuText( Menu_Array[ WIRELESS_REMOTE ].item[ WIRELESS_REMOTE_ENABLED ] , "\1 Enabled \2" );
+	SetMenuText( Menu_Array[ WIRELESS_REMOTE ].item[ WIRELESS_REMOTE_ENABLED  ], "\1 Enabled \2"  );
 	ItemCopy( WIRELESS_REMOTE, Menu_Array[ WIRELESS_REMOTE ].context, 0, 1 );
 
 	Menu_Array[ RELEASE_DEVICE ].menu_type		= EDIT_CHOICE;
@@ -5501,9 +5580,24 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].caption, 	"RELEASE DEVICE" );
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ 0 ], SPACES );
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_SOLENOID ], "\1 Solenoid \2" );
-	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_MAGNET ]  , "\1 Magnet \2" );
-	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_AIR_RAM ] , "\1 Air Ram \2" );
+	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_MAGNET	], "\1 Magnet \2"	);
+	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_AIR_RAM	], "\1 Air Ram \2"	);
 	ItemCopy( RELEASE_DEVICE, Menu_Array[ RELEASE_DEVICE ].context, 0, 1 );
+
+	Menu_Array[ CALIBRATE_AIR_RAM ].menu_type	  = EDIT_CHOICE;
+	Menu_Array[ CALIBRATE_AIR_RAM ].context 	  = CALIBRATE_AIR_RAM_PULSE_DELAY;
+	Menu_Array[ CALIBRATE_AIR_RAM ].sub_context_1 = 0;
+	Menu_Array[ CALIBRATE_AIR_RAM ].sub_context_2 = 0;
+	Menu_Array[ CALIBRATE_AIR_RAM ].sub_context_3 = 0;
+	Menu_Array[ CALIBRATE_AIR_RAM ].item_count 	  = 4;
+	Menu_Array[ CALIBRATE_AIR_RAM ].current_item  = 1;
+	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].caption, 	"CALIBRATE AIR RAM" );
+	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ 0 ],	SPACES );
+	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ CALIBRATE_AIR_RAM_PULSE_DELAY	],	"\1 Set Pulse Delay \2"	 );
+	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ CALIBRATE_AIR_RAM_PULSE_PERIOD 	],	"\1 Set Pulse Period \2" );
+	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ CALIBRATE_AIR_RAM_RAISE			],	"\1 Raise Gate \2"		 );
+	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ CALIBRATE_AIR_RAM_DROP			],	"\1 Drop Test \2" 		 );
+	ItemCopy( CALIBRATE_AIR_RAM, Menu_Array[ CALIBRATE_AIR_RAM ].context, 0, 1 );
 
 	// initialize timing histories array
 	ClearTimingHistories();
