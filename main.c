@@ -241,7 +241,7 @@ enum MENUS	   { DROP_GATE = 0,
 
 				 RELEASE_DEVICE,
 
-				 CALIBRATE_ANTI_SLAM,
+				 ANTI_SLAM,
 
 				 MENUS_SIZE };
 
@@ -251,13 +251,10 @@ enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNC
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
 enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
 enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_UP_DOWN = 2, TEST_LIGHTS_DARK_LIGHT = 3, TEST_LIGHTS_RANDOM = 4 };
-enum CALIBRATE_ANTI_SLAM_OPTIONS{ CALIBRATE_ANTI_SLAM_ENABLE = 1, CALIBRATE_ANTI_SLAM_PULSE_DELAY = 2, CALIBRATE_ANTI_SLAM_PULSE_PERIOD = 3, CALIBRATE_ANTI_SLAM_RAISE = 4, CALIBRATE_ANTI_SLAM_DROP = 5 };
+enum ANTI_SLAM_OPTIONS{ ANTI_SLAM_DISABLED = 1, ANTI_SLAM_ENABLED = 2, ANTI_SLAM_PULSE_DELAY = 3, ANTI_SLAM_PULSE_PERIOD = 4, ANTI_SLAM_RAISE = 5, ANTI_SLAM_DROP = 6 };
 
 // sub-menu options for auxiliary sensor type
 enum SENSOR_OPTIONS			{ RIBBON_SWITCH = 0, INFRARED = 1, LASER = 2, PROXIMITY = 3, WIRELESS = 4, SENSOR_OPTIONS_SIZE = 5 };
-
-// sub-menu options for anti-slam enable/disable
-enum ANTI_SLAM_TEXT_OPTIONS { ANTI_SLAM_DISABLED = 0, ANTI_SLAM_ENABLED = 1, ANTI_SLAM_TEXT_OPTIONS_SIZE = 2 };
 
 enum MENU_TYPE { NO_INPUT, DISPLAY_VALUE, WAIT_FOR_BUTTON, EDIT_VALUE, EDIT_CHOICE, VIEW_LIST };
 
@@ -340,9 +337,6 @@ static struct MENU_DEFINITION Menu_Array[ MENUS_SIZE ];
 
 // array to reference text from auxiliary options
 static char Sensor_Text[ SENSOR_OPTIONS_SIZE ][ DISPLAY_WIDTH ];
-
-// array to reference text from Calibrate Anti-Slam
-static char Anti_Slam_Text[ ANTI_SLAM_TEXT_OPTIONS_SIZE ][ DISPLAY_WIDTH ];
 
 // reserve memory to store history of all timings
 static struct TIMING_DEFINITION Timer_History[ MAX_TIMING_HISTORIES ];
@@ -617,8 +611,6 @@ int main( void )
 
 						Menu_Index += encoder_delta;
 
-
-
 						// make sure that index is within the array of menus
 						if( Menu_Index == MENUS_SIZE )
 							Menu_Index--;
@@ -745,7 +737,7 @@ int main( void )
 						{
 							Menu_Index = WIRELESS_REMOTE;
 						}
-						else if( Menu_Index == CALIBRATE_ANTI_SLAM && Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM )
+						else if( Menu_Index == ANTI_SLAM && Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM )
 						{
 							if( Gate_Power_State == POWER_ON )
 							{
@@ -2375,11 +2367,14 @@ int main( void )
 							break;
 						}
 
-						case CALIBRATE_ANTI_SLAM:
+						case ANTI_SLAM:
 						{
+							Menu_Array[ ANTI_SLAM ].context 	 = Menu_Array[ ANTI_SLAM ].sub_context_3;
+							Menu_Array[ ANTI_SLAM ].current_item = Menu_Array[ ANTI_SLAM ].sub_context_3;
+
 							while( 1 )
 							{
-								WriteLCD_LineCentered( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ Menu_Array[ CALIBRATE_ANTI_SLAM ].context ], 1 );
+								WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ Menu_Array[ ANTI_SLAM ].context ], 1 );
 								UpdateLCD();
 
 								// read controls
@@ -2391,20 +2386,21 @@ int main( void )
 								// change menu value
 								if( encoder_delta != 0 )
 								{
-									const int new_item = Menu_Array[ CALIBRATE_ANTI_SLAM ].current_item + encoder_delta;
+									const int new_item = Menu_Array[ ANTI_SLAM ].current_item + encoder_delta;
 
-									if( new_item > Menu_Array[ CALIBRATE_ANTI_SLAM ].item_count ) continue;
+									if( new_item > Menu_Array[ ANTI_SLAM ].item_count ) continue;
 									if( new_item < 1 ) continue;
 
-									Menu_Array[ CALIBRATE_ANTI_SLAM ].current_item = new_item;
+									Menu_Array[ ANTI_SLAM ].current_item = new_item;
 
 									switch( new_item )
 									{
-										case 1: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_ENABLE;	 	break;	}
-										case 2: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_PULSE_DELAY; 	break;	}
-										case 3: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_PULSE_PERIOD;	break;	}
-										case 4: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_RAISE;		break;	}
-										case 5: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_DROP;			break;	}
+										case 1: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DISABLED;    	break;	}
+										case 2: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_ENABLED;    	break;	}
+										case 3: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_DELAY; 	break;	}
+										case 4: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_PERIOD;	break;	}
+										case 5: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_RAISE;		break;	}
+										case 6: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DROP;			break;	}
 									}
 									continue;
 								}
@@ -2412,20 +2408,23 @@ int main( void )
 								// check for exit
 								WaitForButtonUp();
 
-								if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_ENABLE )
+								if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DISABLED )
 								{
-									WriteLCD_LineCentered( "ANTI-SLAM FEATURE", 0 );
+									Menu_Array[ ANTI_SLAM ].sub_context_3 = ANTI_SLAM_DISABLED;
+								}
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_ENABLED )
+								{
+									Menu_Array[ ANTI_SLAM ].sub_context_3 = ANTI_SLAM_ENABLED;
+								}
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_DELAY )
+								{
+									WriteLCD_LineCentered( "SET PULSE DELAY", 0 );
 
 									while( 1 )
 									{
-										if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == 0 )
-										{
-											WriteLCD_LineCentered( Anti_Slam_Text[ ANTI_SLAM_DISABLED ], 1 );
-										}
-										else
-										{
-											WriteLCD_LineCentered( Anti_Slam_Text[ ANTI_SLAM_ENABLED ], 1 );
-										}
+										// add cursor
+										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d x 10^-4 s \2", Menu_Array[ ANTI_SLAM ].sub_context_1 );
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
 										UpdateLCD();
 
 										// read controls
@@ -2437,11 +2436,11 @@ int main( void )
 										// change menu value
 										if( encoder_delta != 0 )
 										{
-											int new_value = Menu_Array[ CALIBRATE_ANTI_SLAM ].context + encoder_delta;
+											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_1 + encoder_delta;
 
-											if( new_value >= 0 && new_value < ANTI_SLAM_TEXT_OPTIONS_SIZE )
+											if( new_value >= 0 && new_value <= 9999 )
 											{
-												Menu_Array[ CALIBRATE_ANTI_SLAM ].context = new_value;
+												Menu_Array[ ANTI_SLAM ].sub_context_1 = new_value;
 											}
 
 											continue;
@@ -2451,7 +2450,7 @@ int main( void )
 										WaitForButtonUp();
 
 										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ CALIBRATE_ANTI_SLAM ].caption, 0 );
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory();
@@ -2462,25 +2461,69 @@ int main( void )
 									}
 									continue;
 								}
-								else if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_PULSE_DELAY )
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_PERIOD )
 								{
+									WriteLCD_LineCentered( "SET PULSE PERIOD", 0 );
 
+									while( 1 )
+									{
+										// add cursor
+										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d x 10^-4 s \2", Menu_Array[ ANTI_SLAM ].sub_context_2 );
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
+										UpdateLCD();
+
+										// read controls
+										do
+										{	encoder_delta = ReadInputs( &inputs, 0 );
+
+										} while ( encoder_delta == 0 && inputs == 0 );
+
+										// change menu value
+										if( encoder_delta != 0 )
+										{
+											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_2 + encoder_delta;
+
+											if( new_value >= 0 && new_value <= 9999 )
+											{
+												Menu_Array[ ANTI_SLAM ].sub_context_2 = new_value;
+											}
+
+											continue;
+										}
+
+										// check for exit
+										WaitForButtonUp();
+
+										// restore the caption back to the correct aux config
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
+										UpdateLCD();
+
+										SaveEverythingToFlashMemory();
+										ReadInputs( &inputs, 0 );
+										inputs = 0;
+
+										break;
+									}
+									continue;
 								}
-								else if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_PULSE_PERIOD )
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_RAISE )
 								{
+									SetGatePowerOn();
 								}
-								else if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_RAISE )
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DROP )
 								{
-
-								}
-								else if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_DROP )
-								{
-
+									SetGatePowerOff();
 								}
 
-								ItemCopy( CALIBRATE_ANTI_SLAM, Menu_Array[ CALIBRATE_ANTI_SLAM ].context, 0, 1 );
-								WriteLCD_LineCentered( Menu_Array[ CALIBRATE_ANTI_SLAM ].caption, 0 );
+								WaitForButtonUp();
+
+								ItemCopy( ANTI_SLAM, Menu_Array[ ANTI_SLAM ].sub_context_3, 0, 1 );
+								WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
 								UpdateLCD();
+
+								SaveEverythingToFlashMemory();
+								ReadInputs( &inputs, 0 );
+								inputs = 0;
 
 								break;
 							}
@@ -5719,26 +5762,22 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_AIR_RAM	], "\1 Air Ram \2"	);
 	ItemCopy( RELEASE_DEVICE, Menu_Array[ RELEASE_DEVICE ].context, 0, 1 );
 
-	// sub menu text for anti-slam enable/disable
-	strcpy( Anti_Slam_Text[ ANTI_SLAM_ENABLED  ], "\1 Anti-Slam Enabled\2" );
-	strcpy( Anti_Slam_Text[ ANTI_SLAM_DISABLED ], "\1Anti-Slam Disabled\2" );
-
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].menu_type		= EDIT_CHOICE;
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].context		= CALIBRATE_ANTI_SLAM_ENABLE;
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_1 = 0;
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_2 = 0;
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_3 = 0;
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].item_count    = 5;
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].current_item  = 1;
-	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].caption, 	"CALIBRATE ANTI-SLAM" );
-	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ 0 ],	SPACES );
-	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_ENABLE	], Anti_Slam_Text[ Menu_Array[ CALIBRATE_ANTI_SLAM ].context ]	);
-	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_PULSE_DELAY	],	"\1 Set Pulse Delay \2"	 );
-	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_PULSE_PERIOD 	],	"\1 Set Pulse Period \2" );
-	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_RAISE			],	"\1 Raise Gate \2"		 );
-	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_DROP			],	"\1 Drop Test \2" 		 );
-	ItemCopy( CALIBRATE_ANTI_SLAM, Menu_Array[ CALIBRATE_ANTI_SLAM ].context, 0, 1 );
-
+	Menu_Array[ ANTI_SLAM ].menu_type		= EDIT_CHOICE;
+	Menu_Array[ ANTI_SLAM ].context		= ANTI_SLAM_DISABLED;
+	Menu_Array[ ANTI_SLAM ].sub_context_1 = 0;
+	Menu_Array[ ANTI_SLAM ].sub_context_2 = 0;
+	Menu_Array[ ANTI_SLAM ].sub_context_3 = ANTI_SLAM_DISABLED;
+	Menu_Array[ ANTI_SLAM ].item_count    = 6;
+	Menu_Array[ ANTI_SLAM ].current_item  = 0;
+	SetMenuText( Menu_Array[ ANTI_SLAM ].caption,   "ANTI-SLAM FEATURE" );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ 0 ], "Press Button" );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DISABLED		],	"\1 Disabled \2"	 	 );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_ENABLED		],	"\1 Enabled \2"	 		 );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_DELAY	],	"\1 Set Pulse Delay \2"	 );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_PERIOD 	],	"\1 Set Pulse Period \2" );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_RAISE			],	"\1 Raise Gate \2"		 );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DROP			],	"\1 Drop Test \2" 		 );
+	ItemCopy( ANTI_SLAM, Menu_Array[ ANTI_SLAM ].context, 0, 1 );
 
 	// initialize timing histories array
 	ClearTimingHistories();
@@ -5916,11 +5955,9 @@ void SaveEverythingToFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ RELEASE_DEVICE ].item[ 0 ][ i ] );
 
-	FLASH_ProgramWord( write_address, Menu_Array[ CALIBRATE_ANTI_SLAM ].context  );			write_address += 4;
-	FLASH_ProgramWord( write_address, Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_1  );	write_address += 4;
-	FLASH_ProgramWord( write_address, Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_2 );	write_address += 4;
-	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
-		FLASH_ProgramByte( write_address, Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ 0 ][ i ] );
+	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_1  );	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_2 );	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_3 );	write_address += 4;
 
 
 	// lock the flash memory to disable the flash control register access and protect memory from unwanted writes
@@ -6015,11 +6052,9 @@ void ReadEverythingFromFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ RELEASE_DEVICE ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].context		= *(volatile uint32_t*)read_address; read_address += 4;
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_1	= *(volatile uint32_t*)read_address; read_address += 4;
-	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_2	= *(volatile uint32_t*)read_address; read_address += 4;
-	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
-		Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+	Menu_Array[ ANTI_SLAM ].sub_context_1	= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ ANTI_SLAM ].sub_context_2	= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ ANTI_SLAM ].sub_context_3	= *(volatile uint32_t*)read_address; read_address += 4;
 }
 
 uint32_t GetFlashSector( uint32_t Address )
