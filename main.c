@@ -241,7 +241,7 @@ enum MENUS	   { DROP_GATE = 0,
 
 				 RELEASE_DEVICE,
 
-				 CALIBRATE_AIR_RAM,
+				 CALIBRATE_ANTI_SLAM,
 
 				 MENUS_SIZE };
 
@@ -251,10 +251,13 @@ enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNC
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
 enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
 enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_UP_DOWN = 2, TEST_LIGHTS_DARK_LIGHT = 3, TEST_LIGHTS_RANDOM = 4 };
-enum CALIBRATE_AIR_RAM_OPTIONS	{ CALIBRATE_AIR_RAM_PULSE_DELAY = 1, CALIBRATE_AIR_RAM_PULSE_PERIOD = 2, CALIBRATE_AIR_RAM_RAISE = 3, CALIBRATE_AIR_RAM_DROP = 4 };
+enum CALIBRATE_ANTI_SLAM_OPTIONS{ CALIBRATE_ANTI_SLAM_ENABLE = 1, CALIBRATE_ANTI_SLAM_PULSE_DELAY = 2, CALIBRATE_ANTI_SLAM_PULSE_PERIOD = 3, CALIBRATE_ANTI_SLAM_RAISE = 4, CALIBRATE_ANTI_SLAM_DROP = 5 };
 
 // sub-menu options for auxiliary sensor type
 enum SENSOR_OPTIONS			{ RIBBON_SWITCH = 0, INFRARED = 1, LASER = 2, PROXIMITY = 3, WIRELESS = 4, SENSOR_OPTIONS_SIZE = 5 };
+
+// sub-menu options for anti-slam enable/disable
+enum ANTI_SLAM_TEXT_OPTIONS { ANTI_SLAM_DISABLED = 0, ANTI_SLAM_ENABLED = 1, ANTI_SLAM_TEXT_OPTIONS_SIZE = 2 };
 
 enum MENU_TYPE { NO_INPUT, DISPLAY_VALUE, WAIT_FOR_BUTTON, EDIT_VALUE, EDIT_CHOICE, VIEW_LIST };
 
@@ -319,7 +322,7 @@ struct TIMING_DEFINITION
 #define FLASH_SAVE_MEMORY_END   0x08007FFF
 
 // 200 entries = 16000 bytes, using size to correspond to flash module sector size of 16k
-#define MAX_TIMING_HISTORIES 	200
+#define MAX_TIMING_HISTORIES 	150
 // used as a counter for each timing entry for identification - reset at 1 million
 #define MAX_HISTORY_NUMBER	 	999999
 
@@ -337,6 +340,9 @@ static struct MENU_DEFINITION Menu_Array[ MENUS_SIZE ];
 
 // array to reference text from auxiliary options
 static char Sensor_Text[ SENSOR_OPTIONS_SIZE ][ DISPLAY_WIDTH ];
+
+// array to reference text from Calibrate Anti-Slam
+static char Anti_Slam_Text[ ANTI_SLAM_TEXT_OPTIONS_SIZE ][ DISPLAY_WIDTH ];
 
 // reserve memory to store history of all timings
 static struct TIMING_DEFINITION Timer_History[ MAX_TIMING_HISTORIES ];
@@ -739,7 +745,7 @@ int main( void )
 						{
 							Menu_Index = WIRELESS_REMOTE;
 						}
-						else if( Menu_Index == CALIBRATE_AIR_RAM && Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM )
+						else if( Menu_Index == CALIBRATE_ANTI_SLAM && Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM )
 						{
 							if( Gate_Power_State == POWER_ON )
 							{
@@ -1919,7 +1925,7 @@ int main( void )
 							break;
 						}
 
-						case TEST_LIGHTS:
+						case TEST_LIGHTS:	//TODO: Add more effects with compositing and transitioning
 						{
 							while( 1 )
 							{
@@ -1959,7 +1965,7 @@ int main( void )
 									GPIO_SetBits( GPIOD, GPIO_Pin_12 );	// RED light ON
 									GPIO_SetBits( GPIOD, GPIO_Pin_13 );	// AMBER 1 light ON
 									GPIO_SetBits( GPIOD, GPIO_Pin_14 );	// AMBER 2 light ON
-									GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN (red) light ON
+									GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN light ON
 
 									// read controls
 									do
@@ -1970,7 +1976,7 @@ int main( void )
 									GPIO_ResetBits( GPIOD, GPIO_Pin_12 );	// RED light OFF
 									GPIO_ResetBits( GPIOD, GPIO_Pin_13 );	// AMBER 1 light OFF
 									GPIO_ResetBits( GPIOD, GPIO_Pin_14 );	// AMBER 2 light OFF
-									GPIO_ResetBits( GPIOD, GPIO_Pin_15 );	// GREEN (red) light OFF
+									GPIO_ResetBits( GPIOD, GPIO_Pin_15 );	// GREEN light OFF
 
 									ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
 									WriteLCD_LineCentered( Menu_Array[ TEST_LIGHTS ].caption, 0 );
@@ -2003,7 +2009,37 @@ int main( void )
 								}
 								else if( Menu_Array[ TEST_LIGHTS ].context == TEST_LIGHTS_DARK_LIGHT )
 								{
+									const float period = 40.0f;
 
+									float on_time	= 0.0f;
+									float off_time	= 0.0f;
+
+									float theta 	= 3.14159265f / 2.0f;
+
+									do
+									{
+										encoder_delta = ReadInputs( &inputs, 1 );
+
+										theta += 0.0135f;
+										on_time = 0.5f * period - 0.5f * period * sin( theta );
+
+										off_time = period - on_time;
+
+										GPIO_SetBits( GPIOD, GPIO_Pin_12 );	 // RED light ON
+										GPIO_SetBits( GPIOD, GPIO_Pin_13 );	 // AMBER 1 light ON
+										GPIO_SetBits( GPIOD, GPIO_Pin_14 );	 // AMBER 2 light ON
+										GPIO_SetBits( GPIOD, GPIO_Pin_15 );	 // GREEN light ON
+
+										ShortDelay( (int) on_time );
+
+										GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
+										GPIO_ResetBits( GPIOD, GPIO_Pin_13 );// AMBER 1 light OFF
+										GPIO_ResetBits( GPIOD, GPIO_Pin_14 );// AMBER 2 light OFF
+										GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
+
+										ShortDelay( (int) off_time );
+
+									} while ( encoder_delta == 0 && inputs == 0 );
 
 									ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
 									WriteLCD_LineCentered( Menu_Array[ TEST_LIGHTS ].caption, 0 );
@@ -2013,7 +2049,56 @@ int main( void )
 								}
 								else if( Menu_Array[ TEST_LIGHTS ].context == TEST_LIGHTS_RANDOM )
 								{
+									// TODO: Finish this thing!
+									const float period = 100.0f;
 
+									float red_on_time,		red_off_time, 		red_theta;
+									float amber1_on_time,	amber1_off_time, 	amber1_theta;
+									float amber2_on_time,	amber2_off_time, 	amber2_theta;
+									float green_on_time,	green_off_time, 	green_theta;
+
+									do
+									{
+										encoder_delta = ReadInputs( &inputs, 1 );
+
+										red_theta		+=  0.0125f;
+										amber1_theta	+=  0.0225f;
+										amber2_theta	+= -0.0155f;
+										green_theta		+= -0.0195f;
+
+										red_on_time 	= period * sin( red_theta	 );
+										amber1_on_time  = period * sin( amber1_theta );
+										amber2_on_time  = period * sin( amber2_theta );
+										green_on_time 	= period * sin( green_theta	 );
+
+										if( red_on_time    < 0 ) red_on_time 	*=-1;
+										if( amber1_on_time < 0 ) amber1_on_time *=-1;
+										if( amber2_on_time < 0 ) amber2_on_time *=-1;
+										if( green_on_time  < 0 ) red_on_time 	*=-1;
+
+										red_off_time 	= period - red_on_time;
+										amber1_off_time = period - amber1_on_time;
+										amber2_off_time = period - amber2_on_time;
+										green_off_time 	= period - green_on_time;
+
+										// todo: create non-blocking "delays"
+										GPIO_SetBits( GPIOD, GPIO_Pin_12 );	 // RED light ON
+										ShortDelay( (int) red_on_time );
+										GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
+										ShortDelay( (int) red_off_time );
+
+										GPIO_SetBits( GPIOD, GPIO_Pin_13 );	 // AMBER 1 light ON
+										GPIO_SetBits( GPIOD, GPIO_Pin_14 );	 // AMBER 2 light ON
+										GPIO_SetBits( GPIOD, GPIO_Pin_15 );	 // GREEN light ON
+
+
+										GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
+										GPIO_ResetBits( GPIOD, GPIO_Pin_13 );// AMBER 1 light OFF
+										GPIO_ResetBits( GPIOD, GPIO_Pin_14 );// AMBER 2 light OFF
+										GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
+
+
+									} while ( encoder_delta == 0 && inputs == 0 );
 
 									ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
 									WriteLCD_LineCentered( Menu_Array[ TEST_LIGHTS ].caption, 0 );
@@ -2290,11 +2375,11 @@ int main( void )
 							break;
 						}
 
-						case CALIBRATE_AIR_RAM:
+						case CALIBRATE_ANTI_SLAM:
 						{
 							while( 1 )
 							{
-								WriteLCD_LineCentered( Menu_Array[ CALIBRATE_AIR_RAM ].item[ Menu_Array[ CALIBRATE_AIR_RAM ].context ], 1 );
+								WriteLCD_LineCentered( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ Menu_Array[ CALIBRATE_ANTI_SLAM ].context ], 1 );
 								UpdateLCD();
 
 								// read controls
@@ -2306,19 +2391,20 @@ int main( void )
 								// change menu value
 								if( encoder_delta != 0 )
 								{
-									const int new_item = Menu_Array[ CALIBRATE_AIR_RAM ].current_item + encoder_delta;
+									const int new_item = Menu_Array[ CALIBRATE_ANTI_SLAM ].current_item + encoder_delta;
 
-									if( new_item > Menu_Array[ CALIBRATE_AIR_RAM ].item_count ) continue;
+									if( new_item > Menu_Array[ CALIBRATE_ANTI_SLAM ].item_count ) continue;
 									if( new_item < 1 ) continue;
 
-									Menu_Array[ CALIBRATE_AIR_RAM ].current_item = new_item;
+									Menu_Array[ CALIBRATE_ANTI_SLAM ].current_item = new_item;
 
 									switch( new_item )
 									{
-										case 1: { Menu_Array[ CALIBRATE_AIR_RAM ].context = CALIBRATE_AIR_RAM_PULSE_DELAY; 	break;	}
-										case 2: { Menu_Array[ CALIBRATE_AIR_RAM ].context = CALIBRATE_AIR_RAM_PULSE_PERIOD;	break;	}
-										case 3: { Menu_Array[ CALIBRATE_AIR_RAM ].context = CALIBRATE_AIR_RAM_RAISE;		break;	}
-										case 4: { Menu_Array[ CALIBRATE_AIR_RAM ].context = CALIBRATE_AIR_RAM_DROP;			break;	}
+										case 1: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_ENABLE;	 	break;	}
+										case 2: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_PULSE_DELAY; 	break;	}
+										case 3: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_PULSE_PERIOD;	break;	}
+										case 4: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_RAISE;		break;	}
+										case 5: { Menu_Array[ CALIBRATE_ANTI_SLAM ].context = CALIBRATE_ANTI_SLAM_DROP;			break;	}
 									}
 									continue;
 								}
@@ -2326,25 +2412,74 @@ int main( void )
 								// check for exit
 								WaitForButtonUp();
 
-								if( Menu_Array[ CALIBRATE_AIR_RAM ].context == CALIBRATE_AIR_RAM_PULSE_DELAY )
+								if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_ENABLE )
+								{
+									WriteLCD_LineCentered( "ANTI-SLAM FEATURE", 0 );
+
+									while( 1 )
+									{
+										if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == 0 )
+										{
+											WriteLCD_LineCentered( Anti_Slam_Text[ ANTI_SLAM_DISABLED ], 1 );
+										}
+										else
+										{
+											WriteLCD_LineCentered( Anti_Slam_Text[ ANTI_SLAM_ENABLED ], 1 );
+										}
+										UpdateLCD();
+
+										// read controls
+										do
+										{	encoder_delta = ReadInputs( &inputs, 0 );
+
+										} while ( encoder_delta == 0 && inputs == 0 );
+
+										// change menu value
+										if( encoder_delta != 0 )
+										{
+											int new_value = Menu_Array[ CALIBRATE_ANTI_SLAM ].context + encoder_delta;
+
+											if( new_value >= 0 && new_value < ANTI_SLAM_TEXT_OPTIONS_SIZE )
+											{
+												Menu_Array[ CALIBRATE_ANTI_SLAM ].context = new_value;
+											}
+
+											continue;
+										}
+
+										// check for exit
+										WaitForButtonUp();
+
+										// restore the caption back to the correct aux config
+										WriteLCD_LineCentered( Menu_Array[ CALIBRATE_ANTI_SLAM ].caption, 0 );
+										UpdateLCD();
+
+										SaveEverythingToFlashMemory();
+										ReadInputs( &inputs, 0 );
+										inputs = 0;
+
+										break;
+									}
+									continue;
+								}
+								else if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_PULSE_DELAY )
 								{
 
 								}
-								else if( Menu_Array[ CALIBRATE_AIR_RAM ].context == CALIBRATE_AIR_RAM_PULSE_PERIOD )
+								else if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_PULSE_PERIOD )
+								{
+								}
+								else if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_RAISE )
 								{
 
 								}
-								else if( Menu_Array[ CALIBRATE_AIR_RAM ].context == CALIBRATE_AIR_RAM_RAISE )
-								{
-
-								}
-								else if( Menu_Array[ CALIBRATE_AIR_RAM ].context == CALIBRATE_AIR_RAM_DROP )
+								else if( Menu_Array[ CALIBRATE_ANTI_SLAM ].context == CALIBRATE_ANTI_SLAM_DROP )
 								{
 
 								}
 
-								ItemCopy( CALIBRATE_AIR_RAM, Menu_Array[ CALIBRATE_AIR_RAM ].context, 0, 1 );
-								WriteLCD_LineCentered( Menu_Array[ CALIBRATE_AIR_RAM ].caption, 0 );
+								ItemCopy( CALIBRATE_ANTI_SLAM, Menu_Array[ CALIBRATE_ANTI_SLAM ].context, 0, 1 );
+								WriteLCD_LineCentered( Menu_Array[ CALIBRATE_ANTI_SLAM ].caption, 0 );
 								UpdateLCD();
 
 								break;
@@ -2803,7 +2938,7 @@ void DropGate( void )
 		PlayTone( 60, Square632HzData, SQUARE_632HZ_SIZE, 1 );
 		PlaySilence( 60, 0 );
 
-		GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN (red) light ON
+		GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN light ON
 
 		// reset system ticks, will be displayed for timing and used with delays
 		Timer6_Tick 		= 0;
@@ -2934,7 +3069,7 @@ void DoReactionGame( const unsigned int player_count )
 		PlayTone( 60, Square632HzData, SQUARE_632HZ_SIZE, 1 );
 		PlaySilence( 60, 0 );
 
-		GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN (red) light ON
+		GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN light ON
 
 		PlayTone( 2250, Square632HzData, SQUARE_632HZ_SIZE, 1 );
 		InitAudio();
@@ -5532,14 +5667,14 @@ void InitMenus( void )
 	Menu_Array[ TEST_LIGHTS ].sub_context_1 = 0;
 	Menu_Array[ TEST_LIGHTS ].sub_context_2 = 0;
 	Menu_Array[ TEST_LIGHTS ].sub_context_3 = 0;
-	Menu_Array[ TEST_LIGHTS ].item_count 	= 2;	// TODO: Implement the other patterns!
+	Menu_Array[ TEST_LIGHTS ].item_count 	= 4;
 	Menu_Array[ TEST_LIGHTS ].current_item  = 1;
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].caption, 	"TEST LIGHTS" );
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ 0 ],	SPACES );
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_ALL_ON   	],	"\1 All Lights On \2"  	);
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_UP_DOWN  	],	"\1 Up/Down Pattern \2" );
-	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_DARK_LIGHT ],	"\1 Fade To Black \2"	);
-	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_RANDOM		],	"\1 Random \2"			);
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_DARK_LIGHT ],	"\1 All Lights Fade \2" );
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_RANDOM		],	"\1 Random Fade \2"		);
 	ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
 
 	Menu_Array[ REACTION_GAME ].menu_type	  = EDIT_CHOICE;
@@ -5584,20 +5719,26 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_AIR_RAM	], "\1 Air Ram \2"	);
 	ItemCopy( RELEASE_DEVICE, Menu_Array[ RELEASE_DEVICE ].context, 0, 1 );
 
-	Menu_Array[ CALIBRATE_AIR_RAM ].menu_type	  = EDIT_CHOICE;
-	Menu_Array[ CALIBRATE_AIR_RAM ].context 	  = CALIBRATE_AIR_RAM_PULSE_DELAY;
-	Menu_Array[ CALIBRATE_AIR_RAM ].sub_context_1 = 0;
-	Menu_Array[ CALIBRATE_AIR_RAM ].sub_context_2 = 0;
-	Menu_Array[ CALIBRATE_AIR_RAM ].sub_context_3 = 0;
-	Menu_Array[ CALIBRATE_AIR_RAM ].item_count 	  = 4;
-	Menu_Array[ CALIBRATE_AIR_RAM ].current_item  = 1;
-	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].caption, 	"CALIBRATE AIR RAM" );
-	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ 0 ],	SPACES );
-	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ CALIBRATE_AIR_RAM_PULSE_DELAY	],	"\1 Set Pulse Delay \2"	 );
-	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ CALIBRATE_AIR_RAM_PULSE_PERIOD 	],	"\1 Set Pulse Period \2" );
-	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ CALIBRATE_AIR_RAM_RAISE			],	"\1 Raise Gate \2"		 );
-	SetMenuText( Menu_Array[ CALIBRATE_AIR_RAM ].item[ CALIBRATE_AIR_RAM_DROP			],	"\1 Drop Test \2" 		 );
-	ItemCopy( CALIBRATE_AIR_RAM, Menu_Array[ CALIBRATE_AIR_RAM ].context, 0, 1 );
+	// sub menu text for anti-slam enable/disable
+	strcpy( Anti_Slam_Text[ ANTI_SLAM_ENABLED  ], "\1 Anti-Slam Enabled\2" );
+	strcpy( Anti_Slam_Text[ ANTI_SLAM_DISABLED ], "\1Anti-Slam Disabled\2" );
+
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].menu_type		= EDIT_CHOICE;
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].context		= CALIBRATE_ANTI_SLAM_ENABLE;
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_1 = 0;
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_2 = 0;
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_3 = 0;
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].item_count    = 5;
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].current_item  = 1;
+	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].caption, 	"CALIBRATE ANTI-SLAM" );
+	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ 0 ],	SPACES );
+	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_ENABLE	], Anti_Slam_Text[ Menu_Array[ CALIBRATE_ANTI_SLAM ].context ]	);
+	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_PULSE_DELAY	],	"\1 Set Pulse Delay \2"	 );
+	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_PULSE_PERIOD 	],	"\1 Set Pulse Period \2" );
+	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_RAISE			],	"\1 Raise Gate \2"		 );
+	SetMenuText( Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ CALIBRATE_ANTI_SLAM_DROP			],	"\1 Drop Test \2" 		 );
+	ItemCopy( CALIBRATE_ANTI_SLAM, Menu_Array[ CALIBRATE_ANTI_SLAM ].context, 0, 1 );
+
 
 	// initialize timing histories array
 	ClearTimingHistories();
@@ -5775,6 +5916,13 @@ void SaveEverythingToFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ RELEASE_DEVICE ].item[ 0 ][ i ] );
 
+	FLASH_ProgramWord( write_address, Menu_Array[ CALIBRATE_ANTI_SLAM ].context  );			write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_1  );	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_2 );	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ 0 ][ i ] );
+
+
 	// lock the flash memory to disable the flash control register access and protect memory from unwanted writes
 	FLASH_Lock();
 }
@@ -5866,6 +6014,12 @@ void ReadEverythingFromFlashMemory( void )
 	Menu_Array[ RELEASE_DEVICE ].context	= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ RELEASE_DEVICE ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].context		= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_1	= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ CALIBRATE_ANTI_SLAM ].sub_context_2	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ CALIBRATE_ANTI_SLAM ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 }
 
 uint32_t GetFlashSector( uint32_t Address )
