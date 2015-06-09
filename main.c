@@ -18,6 +18,7 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
+//#define SPLASH_TEXT
 //#define CADENCE
 //#define NUMBERS
 //#define BATTERY_LOG
@@ -251,7 +252,8 @@ enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNC
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
 enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
 enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_UP_DOWN = 2, TEST_LIGHTS_DARK_LIGHT = 3, TEST_LIGHTS_RANDOM = 4 };
-enum ANTI_SLAM_OPTIONS{ ANTI_SLAM_DISABLED = 1, ANTI_SLAM_ENABLED = 2, ANTI_SLAM_PULSE_DELAY = 3, ANTI_SLAM_PULSE_PERIOD = 4, ANTI_SLAM_RAISE = 5, ANTI_SLAM_DROP = 6 };
+enum ANTI_SLAM_OPTIONS			{ ANTI_SLAM_DISABLED = 1, ANTI_SLAM_ENABLED = 2, ANTI_SLAM_RAISE = 3, ANTI_SLAM_DROP = 4, ANTI_SLAM_PULSE_DELAY = 5, ANTI_SLAM_PULSE_WIDTH = 6, ANTI_SLAM_PULSE_COUNT = 7, ANTI_SLAM_PULSE_DECAY = 8,
+								  ANTI_SLAM_PULSE_SCALAR = 9 };
 
 // sub-menu options for auxiliary sensor type
 enum SENSOR_OPTIONS			{ RIBBON_SWITCH = 0, INFRARED = 1, LASER = 2, PROXIMITY = 3, WIRELESS = 4, SENSOR_OPTIONS_SIZE = 5 };
@@ -267,6 +269,9 @@ struct MENU_DEFINITION
 	int		sub_context_1;
 	int		sub_context_2;
 	int		sub_context_3;
+	int		sub_context_4;
+	int		sub_context_5;
+	int		sub_context_6;
 
 	char 	caption[ DISPLAY_WIDTH ];
 
@@ -467,17 +472,19 @@ int main( void )
 
 				GPIO_SetBits( GPIOC, GPIO_Pin_0 );
 
+#ifdef SPLASH_TEXT
 				// write splash text
 				WriteLCD_LineCentered( "** RRP BMX GATES **", 0 );
 				WriteLCD_LineCentered( "Epicenter v0.9.3", 1 );
 				UpdateLCD();
 
-				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
-				SetAttenuator( 0x1000 | volume );
-
 				LightTestCycle( 0 );
 
 				Delay( 2000 );
+#endif
+
+				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
+				SetAttenuator( 0x1000 | volume );
 
 				// go to next menu
 				Device_State = WAIT_FOR_USER;
@@ -2369,8 +2376,10 @@ int main( void )
 
 						case ANTI_SLAM:
 						{
-							Menu_Array[ ANTI_SLAM ].context 	 = Menu_Array[ ANTI_SLAM ].sub_context_3;
-							Menu_Array[ ANTI_SLAM ].current_item = Menu_Array[ ANTI_SLAM ].sub_context_3;
+							Menu_Array[ ANTI_SLAM ].context 	 = Menu_Array[ ANTI_SLAM ].sub_context_1;
+							Menu_Array[ ANTI_SLAM ].current_item = Menu_Array[ ANTI_SLAM ].sub_context_1;
+
+							ItemCopy( ANTI_SLAM, Menu_Array[ ANTI_SLAM ].sub_context_1, 0, 1 );
 
 							while( 1 )
 							{
@@ -2397,10 +2406,13 @@ int main( void )
 									{
 										case 1: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DISABLED;    	break;	}
 										case 2: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_ENABLED;    	break;	}
-										case 3: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_DELAY; 	break;	}
-										case 4: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_PERIOD;	break;	}
-										case 5: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_RAISE;		break;	}
-										case 6: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DROP;			break;	}
+										case 3: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_RAISE;		break;	}
+										case 4: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DROP;			break;	}
+										case 5: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_DELAY; 	break;	}
+										case 6: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_WIDTH;	break;	}
+										case 7: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_COUNT;	break;	}
+										case 8: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_DECAY;	break;	}
+										case 9: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_SCALAR;	break;	}
 									}
 									continue;
 								}
@@ -2410,60 +2422,23 @@ int main( void )
 
 								if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DISABLED )
 								{
-									Menu_Array[ ANTI_SLAM ].sub_context_3 = ANTI_SLAM_DISABLED;
+									Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_DISABLED;
 								}
 								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_ENABLED )
 								{
-									Menu_Array[ ANTI_SLAM ].sub_context_3 = ANTI_SLAM_ENABLED;
+									Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_ENABLED;
+								}
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_RAISE )
+								{
+									SetGatePowerOn();
+								}
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DROP )
+								{
+									SetGatePowerOff();
 								}
 								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_DELAY )
 								{
 									WriteLCD_LineCentered( "SET PULSE DELAY", 0 );
-
-									while( 1 )
-									{
-										// add cursor
-										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d x 10^-4 s \2", Menu_Array[ ANTI_SLAM ].sub_context_1 );
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
-										UpdateLCD();
-
-										// read controls
-										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
-
-										} while ( encoder_delta == 0 && inputs == 0 );
-
-										// change menu value
-										if( encoder_delta != 0 )
-										{
-											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_1 + encoder_delta;
-
-											if( new_value >= 0 && new_value <= 9999 )
-											{
-												Menu_Array[ ANTI_SLAM ].sub_context_1 = new_value;
-											}
-
-											continue;
-										}
-
-										// check for exit
-										WaitForButtonUp();
-
-										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
-										UpdateLCD();
-
-										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs, 0 );
-										inputs = 0;
-
-										break;
-									}
-									continue;
-								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_PERIOD )
-								{
-									WriteLCD_LineCentered( "SET PULSE PERIOD", 0 );
 
 									while( 1 )
 									{
@@ -2506,18 +2481,190 @@ int main( void )
 									}
 									continue;
 								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_RAISE )
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_WIDTH )
 								{
-									SetGatePowerOn();
+									WriteLCD_LineCentered( "SET PULSE PERIOD", 0 );
+
+									while( 1 )
+									{
+										// add cursor
+										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d x 10^-4 s \2", Menu_Array[ ANTI_SLAM ].sub_context_3 );
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
+										UpdateLCD();
+
+										// read controls
+										do
+										{	encoder_delta = ReadInputs( &inputs, 0 );
+
+										} while ( encoder_delta == 0 && inputs == 0 );
+
+										// change menu value
+										if( encoder_delta != 0 )
+										{
+											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_3 + encoder_delta;
+
+											if( new_value >= 0 && new_value <= 9999 )
+											{
+												Menu_Array[ ANTI_SLAM ].sub_context_3 = new_value;
+											}
+
+											continue;
+										}
+
+										// check for exit
+										WaitForButtonUp();
+
+										// restore the caption back to the correct aux config
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
+										UpdateLCD();
+
+										SaveEverythingToFlashMemory();
+										ReadInputs( &inputs, 0 );
+										inputs = 0;
+
+										break;
+									}
+									continue;
 								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DROP )
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_COUNT )
 								{
-									SetGatePowerOff();
+									WriteLCD_LineCentered( "SET PULSE COUNT", 0 );
+
+									while( 1 )
+									{
+										// add cursor
+										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d \2", Menu_Array[ ANTI_SLAM ].sub_context_4 );
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
+										UpdateLCD();
+
+										// read controls
+										do
+										{	encoder_delta = ReadInputs( &inputs, 0 );
+
+										} while ( encoder_delta == 0 && inputs == 0 );
+
+										// change menu value
+										if( encoder_delta != 0 )
+										{
+											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_4 + encoder_delta;
+
+											if( new_value >= 0 && new_value <= 5000 )
+											{
+												Menu_Array[ ANTI_SLAM ].sub_context_4 = new_value;
+											}
+
+											continue;
+										}
+
+										// check for exit
+										WaitForButtonUp();
+
+										// restore the caption back to the correct aux config
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
+										UpdateLCD();
+
+										SaveEverythingToFlashMemory();
+										ReadInputs( &inputs, 0 );
+										inputs = 0;
+
+										break;
+									}
+									continue;
+								}
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_DECAY )
+								{
+									WriteLCD_LineCentered( "SET PULSE DECAY", 0 );
+
+									while( 1 )
+									{
+										// add cursor
+										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d \2", Menu_Array[ ANTI_SLAM ].sub_context_5 );
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
+										UpdateLCD();
+
+										// read controls
+										do
+										{	encoder_delta = ReadInputs( &inputs, 0 );
+
+										} while ( encoder_delta == 0 && inputs == 0 );
+
+										// change menu value
+										if( encoder_delta != 0 )
+										{
+											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_5 + encoder_delta;
+
+											if( new_value >= -50 && new_value <= 50 )
+											{
+												Menu_Array[ ANTI_SLAM ].sub_context_5 = new_value;
+											}
+
+											continue;
+										}
+
+										// check for exit
+										WaitForButtonUp();
+
+										// restore the caption back to the correct aux config
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
+										UpdateLCD();
+
+										SaveEverythingToFlashMemory();
+										ReadInputs( &inputs, 0 );
+										inputs = 0;
+
+										break;
+									}
+									continue;
+								}
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_SCALAR )
+								{
+									WriteLCD_LineCentered( "SET PULSE SCALAR", 0 );
+
+									while( 1 )
+									{
+										// add cursor
+										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d \2", Menu_Array[ ANTI_SLAM ].sub_context_6 );
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
+										UpdateLCD();
+
+										// read controls
+										do
+										{	encoder_delta = ReadInputs( &inputs, 0 );
+
+										} while ( encoder_delta == 0 && inputs == 0 );
+
+										// change menu value
+										if( encoder_delta != 0 )
+										{
+											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_6 + encoder_delta;
+
+											if( new_value >= 1 && new_value <= 1000 )
+											{
+												Menu_Array[ ANTI_SLAM ].sub_context_6 = new_value;
+											}
+
+											continue;
+										}
+
+										// check for exit
+										WaitForButtonUp();
+
+										// restore the caption back to the correct aux config
+										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
+										UpdateLCD();
+
+										SaveEverythingToFlashMemory();
+										ReadInputs( &inputs, 0 );
+										inputs = 0;
+
+										break;
+									}
+									continue;
 								}
 
 								WaitForButtonUp();
 
-								ItemCopy( ANTI_SLAM, Menu_Array[ ANTI_SLAM ].sub_context_3, 0, 1 );
+								ItemCopy( ANTI_SLAM, Menu_Array[ ANTI_SLAM ].sub_context_1, 0, 1 );
 								WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
 								UpdateLCD();
 
@@ -4897,14 +5044,14 @@ void PlayTone( const unsigned int milliseconds, const int16_t * tone_data, const
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
 
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// PC14-OSC32 IN
 
 		if ( (i - 6) < 0 ) scale *= 4;
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
 
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// PC14-OSC32 IN
 	}
 	while( i-- > 0 && !(Cadence_Cancelled == 1 && dont_abort == 0) );
 }
@@ -4922,27 +5069,27 @@ void PlaySample16khz( const int16_t * pSampleData, const unsigned int start, con
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// PC14-OSC32 IN
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// PC14-OSC32 IN
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// PC14-OSC32 IN
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// PC14-OSC32 IN
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// PC14-OSC32 IN
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// PC14-OSC32 IN
 	}
 }
 
@@ -4962,19 +5109,19 @@ void PlaySample24khz( const int16_t * pSampleData, const unsigned int start, con
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData( CODEC_I2S, previous + ((sample - previous) / 2) );	// output left
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// PC14-OSC32 IN
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData( CODEC_I2S, previous + ((sample - previous) / 2) );	// output right
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// PC14-OSC32 IN
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
-		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// why do I need this?
+		GPIO_SetBits( GPIOC, GPIO_Pin_14 ); 	// PC14-OSC32 IN
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output right channel
-		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// why do I need this?
+		GPIO_ResetBits( GPIOC, GPIO_Pin_14 );	// PC14-OSC32 IN
 	}
 }
 
@@ -5517,6 +5664,8 @@ void InitMenus( void )
 	Menu_Array[ DROP_GATE ].sub_context_1	= 0;
 	Menu_Array[ DROP_GATE ].sub_context_2	= 0;
 	Menu_Array[ DROP_GATE ].sub_context_3	= 0;
+	Menu_Array[ DROP_GATE ].sub_context_4	= 0;
+	Menu_Array[ DROP_GATE ].sub_context_5	= 0;
 	Menu_Array[ DROP_GATE ].item_count		= 1;
 	Menu_Array[ DROP_GATE ].current_item	= 0;
 	SetMenuText( Menu_Array[ DROP_GATE ].caption,	"DROP GATE" );
@@ -5527,6 +5676,8 @@ void InitMenus( void )
 	Menu_Array[ RAISE_GATE ].sub_context_1	= 0;
 	Menu_Array[ RAISE_GATE ].sub_context_2	= 0;
 	Menu_Array[ RAISE_GATE ].sub_context_3	= 0;
+	Menu_Array[ RAISE_GATE ].sub_context_4	= 0;
+	Menu_Array[ RAISE_GATE ].sub_context_5	= 0;
 	Menu_Array[ RAISE_GATE ].item_count		= 1;
 	Menu_Array[ RAISE_GATE ].current_item	= 0;
 	SetMenuText( Menu_Array[ RAISE_GATE ].caption,	"RAISE GATE" );
@@ -5537,18 +5688,22 @@ void InitMenus( void )
 	Menu_Array[ ENERGIZE_MAGNET ].sub_context_1	= 0;
 	Menu_Array[ ENERGIZE_MAGNET ].sub_context_2	= 0;
 	Menu_Array[ ENERGIZE_MAGNET ].sub_context_3	= 0;
+	Menu_Array[ ENERGIZE_MAGNET ].sub_context_4	= 0;
+	Menu_Array[ ENERGIZE_MAGNET ].sub_context_5	= 0;
 	Menu_Array[ ENERGIZE_MAGNET ].item_count	= 1;
 	Menu_Array[ ENERGIZE_MAGNET ].current_item  = 0;
 	SetMenuText( Menu_Array[ ENERGIZE_MAGNET ].caption,	  "ENERGIZE MAGNET" );
 	SetMenuText( Menu_Array[ ENERGIZE_MAGNET ].item[ 0 ], "Press button" );
 
-	Menu_Array[ GATE_START_DELAY ].menu_type	= EDIT_VALUE;
-	Menu_Array[ GATE_START_DELAY ].context		= 0;
-	Menu_Array[ GATE_START_DELAY ].sub_context_1= 0;
-	Menu_Array[ GATE_START_DELAY ].sub_context_2= 0;
-	Menu_Array[ GATE_START_DELAY ].sub_context_3= 0;
-	Menu_Array[ GATE_START_DELAY ].item_count	= 1;
-	Menu_Array[ GATE_START_DELAY ].current_item	= 0;
+	Menu_Array[ GATE_START_DELAY ].menu_type	 = EDIT_VALUE;
+	Menu_Array[ GATE_START_DELAY ].context		 = 0;
+	Menu_Array[ GATE_START_DELAY ].sub_context_1 = 0;
+	Menu_Array[ GATE_START_DELAY ].sub_context_2 = 0;
+	Menu_Array[ GATE_START_DELAY ].sub_context_3 = 0;
+	Menu_Array[ GATE_START_DELAY ].sub_context_4 = 0;
+	Menu_Array[ GATE_START_DELAY ].sub_context_5 = 0;
+	Menu_Array[ GATE_START_DELAY ].item_count	 = 1;
+	Menu_Array[ GATE_START_DELAY ].current_item	 = 0;
 	SetMenuText( Menu_Array[ GATE_START_DELAY ].caption,   "GATE START DELAY" );
 	SetMenuText( Menu_Array[ GATE_START_DELAY ].item[ 0 ], "No Delay" );
 
@@ -5557,6 +5712,8 @@ void InitMenus( void )
 	Menu_Array[ GATE_START_WARNING ].sub_context_1	= 0;
 	Menu_Array[ GATE_START_WARNING ].sub_context_2	= 0;
 	Menu_Array[ GATE_START_WARNING ].sub_context_3	= 0;
+	Menu_Array[ GATE_START_WARNING ].sub_context_4	= 0;
+	Menu_Array[ GATE_START_WARNING ].sub_context_5	= 0;
 	Menu_Array[ GATE_START_WARNING ].item_count		= 1;
 	Menu_Array[ GATE_START_WARNING ].current_item	= 0;
 	SetMenuText( Menu_Array[ GATE_START_WARNING ].caption,   "GATE START WARNING" );
@@ -5567,6 +5724,8 @@ void InitMenus( void )
 	Menu_Array[ GATE_DROPS_ON ].sub_context_1	= 0;
 	Menu_Array[ GATE_DROPS_ON ].sub_context_2	= 0;
 	Menu_Array[ GATE_DROPS_ON ].sub_context_3	= 0;
+	Menu_Array[ GATE_DROPS_ON ].sub_context_4	= 0;
+	Menu_Array[ GATE_DROPS_ON ].sub_context_5	= 0;
 	Menu_Array[ GATE_DROPS_ON ].item_count		= 1;
 	Menu_Array[ GATE_DROPS_ON ].current_item	= 0;
 	SetMenuText( Menu_Array[ GATE_DROPS_ON ].caption, "GATE DROPS ON" );
@@ -5579,13 +5738,15 @@ void InitMenus( void )
 	strcpy( Sensor_Text[ PROXIMITY 		],	"\1 Proximity \2" 		);
 	strcpy( Sensor_Text[ WIRELESS 		],	"\1 Wireless \2" 		);
 
-	Menu_Array[ AUX_1_CONFIG ].menu_type	= EDIT_CHOICE;
-	Menu_Array[ AUX_1_CONFIG ].context 		= AUX_DISABLED;
-	Menu_Array[ AUX_1_CONFIG ].sub_context_1= 16;
-	Menu_Array[ AUX_1_CONFIG ].sub_context_2= 0;
-	Menu_Array[ AUX_1_CONFIG ].sub_context_3= 0;
-	Menu_Array[ AUX_1_CONFIG ].item_count 	= 8;
-	Menu_Array[ AUX_1_CONFIG ].current_item	= 1;
+	Menu_Array[ AUX_1_CONFIG ].menu_type	 = EDIT_CHOICE;
+	Menu_Array[ AUX_1_CONFIG ].context 		 = AUX_DISABLED;
+	Menu_Array[ AUX_1_CONFIG ].sub_context_1 = 16;
+	Menu_Array[ AUX_1_CONFIG ].sub_context_2 = 0;
+	Menu_Array[ AUX_1_CONFIG ].sub_context_3 = 0;
+	Menu_Array[ AUX_1_CONFIG ].sub_context_4 = 0;
+	Menu_Array[ AUX_1_CONFIG ].sub_context_5 = 0;
+	Menu_Array[ AUX_1_CONFIG ].item_count 	 = 8;
+	Menu_Array[ AUX_1_CONFIG ].current_item	 = 1;
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].caption, 	"AUXILIARY 1" );
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ 0 ],	SPACES );
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_DISABLED 		 ],	"\1 Disabled \2" 		);
@@ -5599,13 +5760,15 @@ void InitMenus( void )
 	ItemCopy( AUX_1_CONFIG, Menu_Array[ AUX_1_CONFIG ].context, 0, 1 );
 	Aux_1_Sensor_Spacing = Menu_Array[ AUX_1_CONFIG ].sub_context_1;
 
-	Menu_Array[ AUX_2_CONFIG ].menu_type	= EDIT_CHOICE;
-	Menu_Array[ AUX_2_CONFIG ].context 		= AUX_DISABLED;
-	Menu_Array[ AUX_2_CONFIG ].sub_context_1= 16;
-	Menu_Array[ AUX_2_CONFIG ].sub_context_2= 0;
-	Menu_Array[ AUX_2_CONFIG ].sub_context_3= 0;
-	Menu_Array[ AUX_2_CONFIG ].item_count 	= 8;
-	Menu_Array[ AUX_2_CONFIG ].current_item	= 1;
+	Menu_Array[ AUX_2_CONFIG ].menu_type	 = EDIT_CHOICE;
+	Menu_Array[ AUX_2_CONFIG ].context 		 = AUX_DISABLED;
+	Menu_Array[ AUX_2_CONFIG ].sub_context_1 = 16;
+	Menu_Array[ AUX_2_CONFIG ].sub_context_2 = 0;
+	Menu_Array[ AUX_2_CONFIG ].sub_context_3 = 0;
+	Menu_Array[ AUX_2_CONFIG ].sub_context_4 = 0;
+	Menu_Array[ AUX_2_CONFIG ].sub_context_5 = 0;
+	Menu_Array[ AUX_2_CONFIG ].item_count 	 = 8;
+	Menu_Array[ AUX_2_CONFIG ].current_item	 = 1;
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].caption, 	"AUXILIARY 2" );
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ 0 ],	SPACES );
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_DISABLED		 ],	"\1 Disabled \2" 		);
@@ -5624,6 +5787,8 @@ void InitMenus( void )
 	Menu_Array[ TIMER_HISTORY ].sub_context_1	= 0;
 	Menu_Array[ TIMER_HISTORY ].sub_context_2	= 0;
 	Menu_Array[ TIMER_HISTORY ].sub_context_3	= 0;
+	Menu_Array[ TIMER_HISTORY ].sub_context_4	= 0;
+	Menu_Array[ TIMER_HISTORY ].sub_context_5	= 0;
 	Menu_Array[ TIMER_HISTORY ].item_count		= 1;
 	Menu_Array[ TIMER_HISTORY ].current_item	= 0;
 	SetMenuText( Menu_Array[ TIMER_HISTORY ].caption,	"TIMER HISTORY" );
@@ -5635,6 +5800,8 @@ void InitMenus( void )
 	Menu_Array[ CLEAR_TIMER_HISTORY ].sub_context_1	= 0;
 	Menu_Array[ CLEAR_TIMER_HISTORY ].sub_context_2	= 0;
 	Menu_Array[ CLEAR_TIMER_HISTORY ].sub_context_3	= 0;
+	Menu_Array[ CLEAR_TIMER_HISTORY ].sub_context_4	= 0;
+	Menu_Array[ CLEAR_TIMER_HISTORY ].sub_context_5	= 0;
 	Menu_Array[ CLEAR_TIMER_HISTORY ].item_count	= 1;
 	Menu_Array[ CLEAR_TIMER_HISTORY ].current_item	= 0;
 	SetMenuText( Menu_Array[ CLEAR_TIMER_HISTORY ].caption,   "CLEAR TIMER HISTORY" );
@@ -5646,6 +5813,8 @@ void InitMenus( void )
 	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_1 = 0;
 	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_2 = 0;
 	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_3 = 0;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_4 = 0;
+	Menu_Array[ AUTO_ANNOUNCE_TIMES ].sub_context_5 = 0;
 	Menu_Array[ AUTO_ANNOUNCE_TIMES ].item_count	= 2;
 	Menu_Array[ AUTO_ANNOUNCE_TIMES ].current_item	= 1;
 	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].caption,	  "AUTO ANNOUNCE TIMES" );
@@ -5654,13 +5823,15 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_ENABLED  ], "\1 Enabled \2"  );
 	ItemCopy( AUTO_ANNOUNCE_TIMES, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context, 0, 1 );
 
-	Menu_Array[ TOTAL_GATE_DROPS ].menu_type	= NO_INPUT;
-	Menu_Array[ TOTAL_GATE_DROPS ].context		= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_1= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_2= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_3= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].item_count	= 0;
-	Menu_Array[ TOTAL_GATE_DROPS ].current_item = 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].menu_type	 = NO_INPUT;
+	Menu_Array[ TOTAL_GATE_DROPS ].context		 = 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_1 = 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_2 = 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_3 = 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_4 = 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].sub_context_5 = 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].item_count	 = 0;
+	Menu_Array[ TOTAL_GATE_DROPS ].current_item  = 0;
 	SetMenuText( Menu_Array[ TOTAL_GATE_DROPS ].caption, "TOTAL GATE DROPS" );
 	sprintf( Menu_Array[ TOTAL_GATE_DROPS ].item[ 0 ], "%d", Menu_Array[ TOTAL_GATE_DROPS ].context );
 
@@ -5669,6 +5840,8 @@ void InitMenus( void )
 	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_1	= 0;
 	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_2	= 0;
 	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_3	= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_4	= 0;
+	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].sub_context_5	= 0;
 	Menu_Array[ ZERO_TOTAL_GATE_DROPS ].item_count	= 1;
 	Menu_Array[ CLEAR_TIMER_HISTORY ].current_item	= 0;
 	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].caption,   "ZERO GATE DROP COUNT" );
@@ -5680,6 +5853,8 @@ void InitMenus( void )
 	Menu_Array[ CADENCE_VOLUME ].sub_context_1= 0;
 	Menu_Array[ CADENCE_VOLUME ].sub_context_2= 0;
 	Menu_Array[ CADENCE_VOLUME ].sub_context_3= 0;
+	Menu_Array[ CADENCE_VOLUME ].sub_context_4= 0;
+	Menu_Array[ CADENCE_VOLUME ].sub_context_5= 0;
 	Menu_Array[ CADENCE_VOLUME ].item_count	  = 1;
 	Menu_Array[ CADENCE_VOLUME ].current_item = 0;
 	SetMenuText( Menu_Array[ CADENCE_VOLUME ].caption, "CADENCE VOLUME" );
@@ -5690,6 +5865,8 @@ void InitMenus( void )
 	Menu_Array[ AUDIO_IN_VOLUME ].sub_context_1= 0;
 	Menu_Array[ AUDIO_IN_VOLUME ].sub_context_2= 0;
 	Menu_Array[ AUDIO_IN_VOLUME ].sub_context_3= 0;
+	Menu_Array[ AUDIO_IN_VOLUME ].sub_context_4= 0;
+	Menu_Array[ AUDIO_IN_VOLUME ].sub_context_5= 0;
 	Menu_Array[ AUDIO_IN_VOLUME ].item_count   = 1;
 	Menu_Array[ AUDIO_IN_VOLUME ].current_item = 0;
 	SetMenuText( Menu_Array[ AUDIO_IN_VOLUME ].caption, "EXT AUDIO IN VOLUME" );
@@ -5700,6 +5877,8 @@ void InitMenus( void )
 	Menu_Array[ BATTERY_CONDITION ].sub_context_1	= 0;
 	Menu_Array[ BATTERY_CONDITION ].sub_context_2	= 0;
 	Menu_Array[ BATTERY_CONDITION ].sub_context_3	= 0;
+	Menu_Array[ BATTERY_CONDITION ].sub_context_4	= 0;
+	Menu_Array[ BATTERY_CONDITION ].sub_context_5	= 0;
 	Menu_Array[ BATTERY_CONDITION ].item_count		= 1;
 	Menu_Array[ BATTERY_CONDITION ].current_item	= 0;
 	SetMenuText( Menu_Array[ BATTERY_CONDITION ].caption,	"BATTERY CONDITION" );
@@ -5710,6 +5889,8 @@ void InitMenus( void )
 	Menu_Array[ TEST_LIGHTS ].sub_context_1 = 0;
 	Menu_Array[ TEST_LIGHTS ].sub_context_2 = 0;
 	Menu_Array[ TEST_LIGHTS ].sub_context_3 = 0;
+	Menu_Array[ TEST_LIGHTS ].sub_context_4 = 0;
+	Menu_Array[ TEST_LIGHTS ].sub_context_5 = 0;
 	Menu_Array[ TEST_LIGHTS ].item_count 	= 4;
 	Menu_Array[ TEST_LIGHTS ].current_item  = 1;
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].caption, 	"TEST LIGHTS" );
@@ -5725,6 +5906,8 @@ void InitMenus( void )
 	Menu_Array[ REACTION_GAME ].sub_context_1 = 0;
 	Menu_Array[ REACTION_GAME ].sub_context_2 = 0;
 	Menu_Array[ REACTION_GAME ].sub_context_3 = 0;
+	Menu_Array[ REACTION_GAME ].sub_context_4 = 0;
+	Menu_Array[ REACTION_GAME ].sub_context_5 = 0;
 	Menu_Array[ REACTION_GAME ].item_count 	  = 4;
 	Menu_Array[ REACTION_GAME ].current_item  = 1;
 	SetMenuText( Menu_Array[ REACTION_GAME ].caption, 	"REACTION GAME" );
@@ -5740,6 +5923,8 @@ void InitMenus( void )
 	Menu_Array[ WIRELESS_REMOTE ].sub_context_1 = 0;
 	Menu_Array[ WIRELESS_REMOTE ].sub_context_2 = 0;
 	Menu_Array[ WIRELESS_REMOTE ].sub_context_3 = 0;
+	Menu_Array[ WIRELESS_REMOTE ].sub_context_4 = 0;
+	Menu_Array[ WIRELESS_REMOTE ].sub_context_5 = 0;
 	Menu_Array[ WIRELESS_REMOTE ].item_count	= 2;
 	Menu_Array[ WIRELESS_REMOTE ].current_item	= 1;
 	SetMenuText( Menu_Array[ WIRELESS_REMOTE ].caption,	  "WIRELESS REMOTE" );
@@ -5753,6 +5938,8 @@ void InitMenus( void )
 	Menu_Array[ RELEASE_DEVICE ].sub_context_1	= 0;
 	Menu_Array[ RELEASE_DEVICE ].sub_context_2	= 0;
 	Menu_Array[ RELEASE_DEVICE ].sub_context_3	= 0;
+	Menu_Array[ RELEASE_DEVICE ].sub_context_4  = 0;
+	Menu_Array[ RELEASE_DEVICE ].sub_context_5  = 0;
 	Menu_Array[ RELEASE_DEVICE ].item_count		= 3;
 	Menu_Array[ RELEASE_DEVICE ].current_item	= RELEASE_DEVICE_SOLENOID;
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].caption, 	"RELEASE DEVICE" );
@@ -5762,21 +5949,27 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_AIR_RAM	], "\1 Air Ram \2"	);
 	ItemCopy( RELEASE_DEVICE, Menu_Array[ RELEASE_DEVICE ].context, 0, 1 );
 
-	Menu_Array[ ANTI_SLAM ].menu_type		= EDIT_CHOICE;
-	Menu_Array[ ANTI_SLAM ].context		= ANTI_SLAM_DISABLED;
-	Menu_Array[ ANTI_SLAM ].sub_context_1 = 0;
-	Menu_Array[ ANTI_SLAM ].sub_context_2 = 0;
-	Menu_Array[ ANTI_SLAM ].sub_context_3 = ANTI_SLAM_DISABLED;
-	Menu_Array[ ANTI_SLAM ].item_count    = 6;
+	Menu_Array[ ANTI_SLAM ].menu_type	  = EDIT_CHOICE;
+	Menu_Array[ ANTI_SLAM ].context		  = ANTI_SLAM_DISABLED;
+	Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_DISABLED;
+	Menu_Array[ ANTI_SLAM ].sub_context_2 = 0; // pulse delay stored here
+	Menu_Array[ ANTI_SLAM ].sub_context_3 = 0; // pulse width stored here
+	Menu_Array[ ANTI_SLAM ].sub_context_4 = 0; // pulse count stored here
+	Menu_Array[ ANTI_SLAM ].sub_context_5 = 0; // pulse decay stored here
+	Menu_Array[ ANTI_SLAM ].sub_context_6 = 1; // pulse scalar stored here
+	Menu_Array[ ANTI_SLAM ].item_count    = 9;
 	Menu_Array[ ANTI_SLAM ].current_item  = 0;
 	SetMenuText( Menu_Array[ ANTI_SLAM ].caption,   "ANTI-SLAM FEATURE" );
-	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ 0 ], "Press Button" );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ 0 ], SPACES );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DISABLED		],	"\1 Disabled \2"	 	 );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_ENABLED		],	"\1 Enabled \2"	 		 );
-	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_DELAY	],	"\1 Set Pulse Delay \2"	 );
-	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_PERIOD 	],	"\1 Set Pulse Period \2" );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_RAISE			],	"\1 Raise Gate \2"		 );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DROP			],	"\1 Drop Test \2" 		 );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_DELAY	],	"\1 Set Pulse Delay \2"	 );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_WIDTH 	],	"\1 Set Pulse Width \2"  );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_COUNT 	],	"\1 Set Pulse Count \2"  );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_DECAY 	],	"\1 Set Pulse Decay \2"  );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_SCALAR 	],	"\1 Set Pulse Scalar \2" );
 	ItemCopy( ANTI_SLAM, Menu_Array[ ANTI_SLAM ].context, 0, 1 );
 
 	// initialize timing histories array
@@ -5928,7 +6121,7 @@ void SaveEverythingToFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ AUX_1_CONFIG ].item[ 0 ][ i ] );
 
-	FLASH_ProgramWord( write_address, Menu_Array[ AUX_2_CONFIG ].context	 );		write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ AUX_2_CONFIG ].context	   );	write_address += 4;
 	FLASH_ProgramWord( write_address, Menu_Array[ AUX_2_CONFIG ].sub_context_1 );	write_address += 4;
 	FLASH_ProgramWord( write_address, Menu_Array[ AUX_2_CONFIG ].sub_context_2 );	write_address += 4;
 	FLASH_ProgramWord( write_address, Menu_Array[ AUX_2_CONFIG ].sub_context_3 );	write_address += 4;
@@ -5955,9 +6148,14 @@ void SaveEverythingToFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ RELEASE_DEVICE ].item[ 0 ][ i ] );
 
-	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_1  );	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_1 );	write_address += 4;
 	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_2 );	write_address += 4;
 	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_3 );	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_4 );	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_5 );	write_address += 4;
+	FLASH_ProgramWord( write_address, Menu_Array[ ANTI_SLAM ].sub_context_6 );	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ ANTI_SLAM ].item[ 0 ][ i ] );
 
 
 	// lock the flash memory to disable the flash control register access and protect memory from unwanted writes
@@ -6055,6 +6253,11 @@ void ReadEverythingFromFlashMemory( void )
 	Menu_Array[ ANTI_SLAM ].sub_context_1	= *(volatile uint32_t*)read_address; read_address += 4;
 	Menu_Array[ ANTI_SLAM ].sub_context_2	= *(volatile uint32_t*)read_address; read_address += 4;
 	Menu_Array[ ANTI_SLAM ].sub_context_3	= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ ANTI_SLAM ].sub_context_4	= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ ANTI_SLAM ].sub_context_5	= *(volatile uint32_t*)read_address; read_address += 4;
+	Menu_Array[ ANTI_SLAM ].sub_context_6	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ ANTI_SLAM ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 }
 
 uint32_t GetFlashSector( uint32_t Address )
