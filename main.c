@@ -979,7 +979,7 @@ int main( void )
 
 							PlayRaiseGateAnimation();
 
-							Delay( 1000 );
+							Delay( 400 );
 
 							Menu_Index = DROP_GATE;
 
@@ -4667,7 +4667,7 @@ void PlayRaiseGateAnimation( void )
 		// define custom characters and display
 		WriteLCD_Command( 0x40 ); // Character code 0x00, start of CGRAM
 
-		for( pixel_line = 0; pixel_line < 8; pixel_line++ )	WriteLCD_Data( (int)R[ pixel_line ] );
+		for( pixel_line = 0; pixel_line < 8; pixel_line++ ) WriteLCD_Data( (int)R[ pixel_line ] );
 		for( pixel_line = 0; pixel_line < 8; pixel_line++ )	WriteLCD_Data( (int)a[ pixel_line ] );
 		for( pixel_line = 0; pixel_line < 8; pixel_line++ )	WriteLCD_Data( (int)i[ pixel_line ] );
 		for( pixel_line = 0; pixel_line < 8; pixel_line++ )	WriteLCD_Data( (int)s[ pixel_line ] );
@@ -4679,7 +4679,7 @@ void PlayRaiseGateAnimation( void )
 		WriteLCD_Line( "    \0\1\2\3\2\4\5 \5\1\6\7    ", 1 );
 		UpdateLCD();
 
-		Delay( 70 );
+		Delay( 160 );
 	}
 
 	WriteLCD_Line( "    Raising gate    ", 1 );
@@ -4707,14 +4707,14 @@ void PlayDropGateAnimation( void )
 		Delay( 30 - 2 * i );
 		WriteLCD_Command( 0x40 ); // Character code 0x00, start of CGRAM
 
-		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)D[ j ] );
-		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)R[ j ] );
-		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)O[ j ] );
-		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)P[ j ] );
-		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)G[ j ] );
-		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)A[ j ] );
-		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)T[ j ] );
-		for( j = 0; j < 8; j++ )	WriteLCD_Data( (int)E[ j ] );
+		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)D[ j ] );
+		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)R[ j ] );
+		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)O[ j ] );
+		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)P[ j ] );
+		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)G[ j ] );
+		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)A[ j ] );
+		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)T[ j ] );
+		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)E[ j ] );
 
 		WriteLCD_Line( "      \0\1\2\3 \4\5\6\7     ", 0 );
 		UpdateLCD();
