@@ -140,7 +140,7 @@ void PlaySpeed( unsigned int integer, const unsigned int fractional );
 void PlayDigit( const unsigned int number );
 
 // play cadence, drive lights, power magnet/solenoid/air ram
-void DropGate( void );
+void DropGate( int test );
 void PlayRaiseGateAnimation( void );
 void PlayDropGateAnimation( void );
 // used for energizing the magnet and when the air ram is in action
@@ -253,15 +253,15 @@ enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNC
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
 enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
 enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_UP_DOWN = 2, TEST_LIGHTS_DARK_LIGHT = 3, TEST_LIGHTS_RANDOM = 4 };
-enum ANTI_SLAM_OPTIONS			{ ANTI_SLAM_DISABLED = 1, ANTI_SLAM_ENABLED = 2, ANTI_SLAM_RAISE = 3, ANTI_SLAM_START_DELAY = 4, ANTI_SLAM_PULSE_WIDTH = 5, ANTI_SLAM_WIDTH_DECAY = 6,
-								  ANTI_SLAM_PULSE_DELAY = 7, ANTI_SLAM_DELAY_DECAY = 8, ANTI_SLAM_PULSE_SCALAR = 9, ANTI_SLAM_PULSE_COUNT = 10 };
+enum ANTI_SLAM_OPTIONS			{ ANTI_SLAM_DISABLED = 1, ANTI_SLAM_ENABLED = 2, ANTI_SLAM_RAISE_GATE = 3, ANTI_SLAM_DROP_GATE = 4, ANTI_SLAM_START_DELAY = 5, ANTI_SLAM_PULSE_WIDTH = 6,
+								  ANTI_SLAM_WIDTH_DELTA = 7, ANTI_SLAM_PULSE_DELAY = 8, ANTI_SLAM_DELAY_DELTA = 9, ANTI_SLAM_INCREMENT = 10, ANTI_SLAM_PULSE_COUNT = 11, ANTI_SLAM_USE_DEFAULTS = 12 };
 
 // sub-menu options for auxiliary sensor type
 enum SENSOR_OPTIONS			{ RIBBON_SWITCH = 0, INFRARED = 1, LASER = 2, PROXIMITY = 3, WIRELESS = 4, SENSOR_OPTIONS_SIZE = 5 };
 
 enum MENU_TYPE { NO_INPUT, DISPLAY_VALUE, WAIT_FOR_BUTTON, EDIT_VALUE, EDIT_CHOICE, VIEW_LIST };
 
-#define MAX_MENU_ITEMS 12
+#define MAX_MENU_ITEMS 16
 
 struct MENU_DEFINITION
 {
@@ -372,10 +372,10 @@ static unsigned int Dropping_Gate = 0;
 static int	 Anti_Slam_Active		= 0;
 static float Anti_Slam_Start_Delay	= 0.0f;
 static float Anti_Slam_Pulse_Width  = 0.0f;
-static float Anti_Slam_Width_Decay  = 0.0f;
+static float Anti_Slam_Width_Delta  = 0.0f;
 static float Anti_Slam_Pulse_Delay  = 0.0f;
-static float Anti_Slam_Delay_Decay  = 0.0f;
-static float Anti_Slam_Pulse_Scalar = 0.0f;
+static float Anti_Slam_Delay_Delta  = 0.0f;
+static float Anti_Slam_Increment 	= 0.0f;
 static int	 Anti_Slam_Pulse_Count  = 0;
 static int	 Anti_Slam_Gate_Up 		= 0;
 
@@ -671,21 +671,21 @@ int main( void )
 								{
 									if( Menu_Index == DROP_GATE || Menu_Index == RAISE_GATE )
 									{
-										Menu_Index = GATE_START_DELAY;
+										Menu_Index = GATE_DROPS_ON;
 									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
 								{
 									if( Menu_Index == DROP_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
-										Menu_Index = GATE_START_DELAY;
+										Menu_Index = GATE_DROPS_ON;
 									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
 								{
 									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
-										Menu_Index = GATE_START_DELAY;
+										Menu_Index = GATE_DROPS_ON;
 									}
 								}
 							}
@@ -722,21 +722,21 @@ int main( void )
 								{
 									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
-										Menu_Index = GATE_START_DELAY;
+										Menu_Index = GATE_DROPS_ON;
 									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
 								{
 									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
-										Menu_Index = GATE_START_DELAY;
+										Menu_Index = GATE_DROPS_ON;
 									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
 								{
 									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
-										Menu_Index = GATE_START_DELAY;
+										Menu_Index = GATE_DROPS_ON;
 									}
 								}
 							}
@@ -946,7 +946,7 @@ int main( void )
 							}
 
 							PlayDropGateAnimation();
-							DropGate();
+							DropGate( 0 );
 
 							// the only reason to call this is to save the total gate drops
 							SaveEverythingToFlashMemory();
@@ -2392,6 +2392,14 @@ int main( void )
 
 							ItemCopy( ANTI_SLAM, Menu_Array[ ANTI_SLAM ].sub_context_1, 0, 1 );
 
+							switch ( Menu_Array[ ANTI_SLAM ].sub_context_7 )
+							{
+								case 1: { Anti_Slam_Increment = 1000; break; }
+								case 2: { Anti_Slam_Increment = 100;  break; }
+								case 3: { Anti_Slam_Increment = 10;	  break; }
+								case 4: { Anti_Slam_Increment = 1;	  break; }
+							}
+
 							while( 1 )
 							{
 								WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ Menu_Array[ ANTI_SLAM ].context ], 1 );
@@ -2417,15 +2425,20 @@ int main( void )
 									{
 										case  1: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DISABLED;     break;	}
 										case  2: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_ENABLED;    	 break;	}
-										case  3: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_RAISE;		 break;	}
 
-										case  4: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_START_DELAY;  break;	}
-										case  5: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_WIDTH;	 break;	}
-										case  6: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_WIDTH_DECAY;	 break;	}
-										case  7: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_DELAY;	 break;	}
-										case  8: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DELAY_DECAY;	 break;	}
-										case  9: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_SCALAR; break;	}
-										case 10: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_COUNT;	 break;	}
+										case  3: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_RAISE_GATE;	 break;	}
+										case  4: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DROP_GATE;	 break;	}
+
+										case  5: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_START_DELAY;  break;	}
+										case  6: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_WIDTH;	 break;	}
+										case  7: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_WIDTH_DELTA;	 break;	}
+										case  8: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_DELAY;	 break;	}
+										case  9: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_DELAY_DELTA;	 break;	}
+										case 10: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_INCREMENT; 	 break;	}
+										case 11: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_PULSE_COUNT;	 break;	}
+
+										case 12: { Menu_Array[ ANTI_SLAM ].context = ANTI_SLAM_USE_DEFAULTS; break;	}
+
 									}
 									continue;
 								}
@@ -2433,7 +2446,6 @@ int main( void )
 								// check for exit
 								WaitForButtonUp();
 
-								// TODO: combine all these similar UI blocks into a parameterized function, this is ridiculous
 								if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DISABLED )
 								{
 									Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_DISABLED;
@@ -2442,18 +2454,70 @@ int main( void )
 								{
 									Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_ENABLED;
 								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_RAISE )
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_RAISE_GATE )
 								{
 									SetGatePowerOn();
 								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_START_DELAY )
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DROP_GATE )
 								{
-									WriteLCD_LineCentered( "SET START DELAY", 0 );
+									PlaySilence( 100, 0 );
+									DropGate( 1 );
+								}
+								else if( (Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_START_DELAY) ||
+										 (Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_WIDTH) ||
+										 (Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_WIDTH_DELTA) ||
+										 (Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_DELAY) ||
+										 (Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DELAY_DELTA )
+									   )
+								{
+									int *context = & Menu_Array[ ANTI_SLAM ].sub_context_2;
+
+									if ( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_START_DELAY )
+									{
+										WriteLCD_LineCentered( "SET START DELAY", 0 );
+										context = & Menu_Array[ ANTI_SLAM ].sub_context_2;
+									}
+									else if ( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_WIDTH )
+									{
+										WriteLCD_LineCentered( "SET PULSE WIDTH", 0 );
+										context = & Menu_Array[ ANTI_SLAM ].sub_context_3;
+									}
+									else if ( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_WIDTH_DELTA )
+									{
+										WriteLCD_LineCentered( "SET WIDTH DELTA", 0 );
+										context = & Menu_Array[ ANTI_SLAM ].sub_context_4;
+									}
+									else if ( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_DELAY )
+									{
+										WriteLCD_LineCentered( "SET PULSE DELAY", 0 );
+										context = & Menu_Array[ ANTI_SLAM ].sub_context_5;
+									}
+									else if ( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DELAY_DELTA )
+									{
+										WriteLCD_LineCentered( "SET DELAY DELTA", 0 );
+										context = & Menu_Array[ ANTI_SLAM ].sub_context_6;
+									}
 
 									while( 1 )
 									{
 										// add cursor
-										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d x 10^-4 s \2", Menu_Array[ ANTI_SLAM ].sub_context_2 );
+										if( *context < 10 )
+										{
+											sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 0.000%d seconds \2", *context );
+										}
+										else if( *context  < 100 )
+										{
+											sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 0.00%d seconds \2", *context );
+										}
+										else  if( *context  < 1000 )
+										{
+											sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 0.0%d seconds \2", *context );
+										}
+										else if( *context < 10000 )
+										{
+											sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 0.%d seconds \2", *context );
+										}
+
 										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
 										UpdateLCD();
 
@@ -2466,12 +2530,8 @@ int main( void )
 										// change menu value
 										if( encoder_delta != 0 )
 										{
-											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_2 + encoder_delta * 5;
-
-											if( new_value >= 0 && new_value <= 9999 )
-											{
-												Menu_Array[ ANTI_SLAM ].sub_context_2 = new_value;
-											}
+											int new_value = *context + encoder_delta * Anti_Slam_Increment;
+											if( new_value >= 0 && new_value <= 9999 ) *context = new_value;
 
 											continue;
 										}
@@ -2491,194 +2551,21 @@ int main( void )
 									}
 									continue;
 								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_WIDTH )
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_INCREMENT )
 								{
-									WriteLCD_LineCentered( "SET PULSE WIDTH", 0 );
+									WriteLCD_LineCentered( "SET INCREMENT", 0 );
 
 									while( 1 )
 									{
 										// add cursor
-										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d x 10^-4 s \2", Menu_Array[ ANTI_SLAM ].sub_context_3 );
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
-										UpdateLCD();
-
-										// read controls
-										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
-
-										} while ( encoder_delta == 0 && inputs == 0 );
-
-										// change menu value
-										if( encoder_delta != 0 )
+										switch ( Menu_Array[ ANTI_SLAM ].sub_context_7 )
 										{
-											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_3 + encoder_delta * 5;
-
-											if( new_value >= 0 && new_value <= 9999 )
-											{
-												Menu_Array[ ANTI_SLAM ].sub_context_3 = new_value;
-											}
-
-											continue;
+											case 1: { strcpy( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 0.1 \2" );		Anti_Slam_Increment = 1000;	break; }
+											case 2: { strcpy( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 0.01 \2" );	Anti_Slam_Increment = 100;	break; }
+											case 3: { strcpy( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 0.001 \2" );	Anti_Slam_Increment = 10;	break; }
+											case 4: { strcpy( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 0.0001 \2" );	Anti_Slam_Increment = 1;	break; }
 										}
 
-										// check for exit
-										WaitForButtonUp();
-
-										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
-										UpdateLCD();
-
-										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs, 0 );
-										inputs = 0;
-
-										break;
-									}
-									continue;
-								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_WIDTH_DECAY )
-								{
-									WriteLCD_LineCentered( "SET WIDTH DECAY", 0 );
-
-									while( 1 )
-									{
-										// add cursor
-										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d \2", Menu_Array[ ANTI_SLAM ].sub_context_4 );
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
-										UpdateLCD();
-
-										// read controls
-										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
-
-										} while ( encoder_delta == 0 && inputs == 0 );
-
-										// change menu value
-										if( encoder_delta != 0 )
-										{
-											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_4 + encoder_delta;
-
-											if( new_value >= -50 && new_value <= 50 )
-											{
-												Menu_Array[ ANTI_SLAM ].sub_context_4 = new_value;
-											}
-
-											continue;
-										}
-
-										// check for exit
-										WaitForButtonUp();
-
-										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
-										UpdateLCD();
-
-										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs, 0 );
-										inputs = 0;
-
-										break;
-									}
-									continue;
-								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_DELAY )
-								{
-									WriteLCD_LineCentered( "SET PULSE DELAY", 0 );
-
-									while( 1 )
-									{
-										// add cursor
-										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d x 10^-4 s \2", Menu_Array[ ANTI_SLAM ].sub_context_5 );
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
-										UpdateLCD();
-
-										// read controls
-										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
-
-										} while ( encoder_delta == 0 && inputs == 0 );
-
-										// change menu value
-										if( encoder_delta != 0 )
-										{
-											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_5 + encoder_delta * 5;
-
-											if( new_value >= 1 && new_value <= 9999 )
-											{
-												Menu_Array[ ANTI_SLAM ].sub_context_5 = new_value;
-											}
-
-											continue;
-										}
-
-										// check for exit
-										WaitForButtonUp();
-
-										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
-										UpdateLCD();
-
-										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs, 0 );
-										inputs = 0;
-
-										break;
-									}
-									continue;
-								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DELAY_DECAY )
-								{
-									WriteLCD_LineCentered( "SET DELAY DECAY", 0 );
-
-									while( 1 )
-									{
-										// add cursor
-										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d \2", Menu_Array[ ANTI_SLAM ].sub_context_6 );
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
-										UpdateLCD();
-
-										// read controls
-										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
-
-										} while ( encoder_delta == 0 && inputs == 0 );
-
-										// change menu value
-										if( encoder_delta != 0 )
-										{
-											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_6 + encoder_delta;
-
-											if( new_value >= -50 && new_value <= 50 )
-											{
-												Menu_Array[ ANTI_SLAM ].sub_context_6 = new_value;
-											}
-
-											continue;
-										}
-
-										// check for exit
-										WaitForButtonUp();
-
-										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
-										UpdateLCD();
-
-										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs, 0 );
-										inputs = 0;
-
-										break;
-									}
-									continue;
-								}
-								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_SCALAR )
-								{
-									WriteLCD_LineCentered( "SET PULSE SCALAR", 0 );
-
-									while( 1 )
-									{
-										// add cursor
-										sprintf( Menu_Array[ ANTI_SLAM ].item[ 0 ], "\1 %d \2", Menu_Array[ ANTI_SLAM ].sub_context_7 );
 										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
 										UpdateLCD();
 
@@ -2693,7 +2580,7 @@ int main( void )
 										{
 											int new_value = Menu_Array[ ANTI_SLAM ].sub_context_7 + encoder_delta;
 
-											if( new_value >= 1 && new_value <= 1000 )
+											if( new_value >= 1 && new_value <= 4 )
 											{
 												Menu_Array[ ANTI_SLAM ].sub_context_7 = new_value;
 											}
@@ -2760,6 +2647,10 @@ int main( void )
 										break;
 									}
 									continue;
+								}
+								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_USE_DEFAULTS )
+								{
+									// TODO: Add "Are you sure? y/n"
 								}
 
 								WaitForButtonUp();
@@ -3089,102 +2980,105 @@ int main( void )
 	}
 }
 
-void DropGate( void )
+void DropGate( int test )
 {
 	Dropping_Gate	  = 1;
 
 	Cadence_Cancelled = 0;
 
-#ifdef CADENCE
-	uint32_t fade_volume = 0;
-
-	int volume		= 0;
-	int step		= 0;
-	int count_step  = 0;
-
-	// check to see if there is audio coming in
-	ADC_SoftwareStartConv( ADC2 );
-	while( !ADC_GetFlagStatus(ADC2, ADC_FLAG_EOC) );
-
-	if( ADC_GetConversionValue( ADC2 ) > 0xF00 )
+	if( test == 0 )
 	{
-		fade_volume = 1;
+#ifdef CADENCE
+		uint32_t fade_volume = 0;
 
-		WriteLCD_LineCentered( "FADING EXT AUDIO OUT", 0 );
+		int volume		= 0;
+		int step		= 0;
+		int count_step  = 0;
+
+		// check to see if there is audio coming in
+		ADC_SoftwareStartConv( ADC2 );
+		while( !ADC_GetFlagStatus(ADC2, ADC_FLAG_EOC) );
+
+		if( ADC_GetConversionValue( ADC2 ) > 0xF00 )
+		{
+			fade_volume = 1;
+
+			WriteLCD_LineCentered( "FADING EXT AUDIO OUT", 0 );
+			UpdateLCD();
+
+			// fade music volume out TODO: make this a logarithmic!
+			volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
+			step = volume / 20 + 1;
+			count_step = volume / 3;
+
+			for( ; volume >= 0 && Cadence_Cancelled == 0; volume -= step )
+			{
+				SetAttenuator( 0x0000 | volume );
+				Delay( 80 );
+
+				if( volume > count_step * 2 )
+					WriteLCD_LineCentered( "-=\1 3 \2=-", 1 );
+				else if( volume > count_step )
+					WriteLCD_LineCentered( "-=\1 2 \2=-", 1 );
+				else
+					WriteLCD_LineCentered( "-=\1 1 \2=-", 1 );
+
+				UpdateLCD();
+			}
+		}
+#endif
+
+		WriteLCD_LineCentered( "CADENCE STARTED", 0 );
+		WriteLCD_LineCentered( SPACES, 1 );
 		UpdateLCD();
 
-		// fade music volume out TODO: make this a logarithmic!
-		volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
-		step = volume / 20 + 1;
-		count_step = volume / 3;
+		SetAttenuator( 0x0000 );
 
-		for( ; volume >= 0 && Cadence_Cancelled == 0; volume -= step )
+		Cadence_Cancelled= 0;
+		Cancel_Timing	 = 0;
+
+		PlaySilence( 100, 0 );
+
+#ifdef CADENCE
+		// start playing the voice part of the cadence
+		PlaySample24khz( OkRidersData,		0, OK_RIDERS_SIZE,		0 );
+		PlaySilence( 149, 0 );
+
+		PlaySample24khz( RandomStartData,	0, RANDOM_START_SIZE,	0 );
+		PlaySilence( 1810, 0 );
+
+		PlaySample24khz( RidersReadyData,	0, RIDERS_READY_SIZE,	0 );
+		PlaySilence( 179, 0 );
+#endif
+
+		if( Cadence_Cancelled == 1 )
 		{
-			SetAttenuator( 0x0000 | volume );
-			Delay( 80 );
+			Cancel_Timing = 1;
 
-			if( volume > count_step * 2 )
-				WriteLCD_LineCentered( "-=\1 3 \2=-", 1 );
-			else if( volume > count_step )
-				WriteLCD_LineCentered( "-=\1 2 \2=-", 1 );
-			else
-				WriteLCD_LineCentered( "-=\1 1 \2=-", 1 );
+			WriteLCD_LineCentered( "GATE DROP ABORTED", 0 );
+			WriteLCD_Line(	SPACES, 1 );
+			UpdateLCD();
 
-		    UpdateLCD();
+			InitAudio();
+
+			// play cancel tones
+			PlaySilence( 100, 1 );
+			PlayTone( 220, Square740HzData, SQUARE_740HZ_SIZE, 1 );
+			PlayTone( 440, Square680HzData, SQUARE_680HZ_SIZE, 1 );
+
+			// check for exit
+			WaitForButtonUp();
 		}
-	}
-#endif
-
-	WriteLCD_LineCentered( "CADENCE STARTED", 0 );
-	WriteLCD_LineCentered( SPACES, 1 );
-	UpdateLCD();
-
-	SetAttenuator( 0x0000 );
-
-	Cadence_Cancelled= 0;
-	Cancel_Timing	 = 0;
-
-    PlaySilence( 100, 0 );
-
+		else
+		{
 #ifdef CADENCE
-	// start playing the voice part of the cadence
-	PlaySample24khz( OkRidersData,		0, OK_RIDERS_SIZE,		0 );
-	PlaySilence( 149, 0 );
-
-	PlaySample24khz( RandomStartData,	0, RANDOM_START_SIZE,	0 );
-	PlaySilence( 1810, 0 );
-
-	PlaySample24khz( RidersReadyData,	0, RIDERS_READY_SIZE,	0 );
-	PlaySilence( 179, 0 );
+			PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );
 #endif
+		}
 
-	if( Cadence_Cancelled == 1 )
-	{
-		Cancel_Timing = 1;
-
-		WriteLCD_LineCentered( "GATE DROP ABORTED", 0 );
-		WriteLCD_Line(	SPACES, 1 );
-	    UpdateLCD();
-
-		InitAudio();
-
-		// play cancel tones
-		PlaySilence( 100, 1 );
-		PlayTone( 220, Square740HzData, SQUARE_740HZ_SIZE, 1 );
-		PlayTone( 440, Square680HzData, SQUARE_680HZ_SIZE, 1 );
-
-		// check for exit
-		WaitForButtonUp();
+		// wait 0.10 to 2.7 seconds
+		PlaySilence( GetRandomNumber() % 2600 + 100, 0 );
 	}
-	else
-	{
-#ifdef CADENCE
-		PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );
-#endif
-	}
-
-	// wait 0.10 to 2.7 seconds
-	PlaySilence( GetRandomNumber() % 2600 + 100, 0 );
 
 	if( Cadence_Cancelled == 1 )
 	{
@@ -3261,31 +3155,34 @@ void DropGate( void )
 	// Get rid of the static that occurs intermittently
 	InitAudio();
 
-#ifdef CADENCE
-	if( fade_volume == 1 )
+	if( test == 0 )
 	{
-		WriteLCD_LineCentered( "FADING EXT AUDIO IN", 0 );
-		WriteLCD_Line( SPACES, 1 );
-	    UpdateLCD();
-
-		int max_volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
-
-		for( volume = 0 ; volume < max_volume; volume += step )
+#ifdef CADENCE
+		if( fade_volume == 1 )
 		{
-			SetAttenuator( 0x0000 | volume );
-			Delay( 80 );
-
-			if( volume > count_step * 2 )
-				WriteLCD_LineCentered( "-=\1 3 \2=-", 1 );
-			else if( volume > count_step )
-				WriteLCD_LineCentered( "-=\1 2 \2=-", 1 );
-			else
-				WriteLCD_LineCentered( "-=\1 1 \2=-", 1 );
-
+			WriteLCD_LineCentered( "FADING EXT AUDIO IN", 0 );
+			WriteLCD_Line( SPACES, 1 );
 		    UpdateLCD();
+
+			int max_volume = (128 * Menu_Array[ AUDIO_IN_VOLUME ].context) / 100;
+
+			for( volume = 0 ; volume < max_volume; volume += step )
+			{
+				SetAttenuator( 0x0000 | volume );
+				Delay( 80 );
+
+				if( volume > count_step * 2 )
+					WriteLCD_LineCentered( "-=\1 3 \2=-", 1 );
+				else if( volume > count_step )
+					WriteLCD_LineCentered( "-=\1 2 \2=-", 1 );
+				else
+					WriteLCD_LineCentered( "-=\1 1 \2=-", 1 );
+
+			    UpdateLCD();
+			}
 		}
-	}
 #endif
+	}
 
 	Dropping_Gate = 0;
 }
@@ -4711,6 +4608,7 @@ void PlayDropGateAnimation( void )
 		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)R[ j ] );
 		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)O[ j ] );
 		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)P[ j ] );
+
 		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)G[ j ] );
 		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)A[ j ] );
 		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)T[ j ] );
@@ -4725,6 +4623,7 @@ void PlayDropGateAnimation( void )
 			R[ j ] = R[ j - 1 ];
 			O[ j ] = O[ j - 1 ];
 			P[ j ] = P[ j - 1 ];
+
 			G[ j ] = G[ j - 1 ];
 			A[ j ] = A[ j - 1 ];
 			T[ j ] = T[ j - 1 ];
@@ -4735,6 +4634,7 @@ void PlayDropGateAnimation( void )
 		R[ 0 ] = 0;
 		O[ 0 ] = 0;
 		P[ 0 ] = 0;
+
 		G[ 0 ] = 0;
 		A[ 0 ] = 0;
 		T[ 0 ] = 0;
@@ -5066,13 +4966,11 @@ void TIM6_DAC_IRQHandler()
 
 					Anti_Slam_Start_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_2;
 
-					Anti_Slam_Pulse_Scalar = ((float)Menu_Array[ ANTI_SLAM ].sub_context_7) * 0.001f;
+					Anti_Slam_Pulse_Width  = Menu_Array[ ANTI_SLAM ].sub_context_3;
+					Anti_Slam_Width_Delta  = Menu_Array[ ANTI_SLAM ].sub_context_4;
 
-					Anti_Slam_Pulse_Width  = Menu_Array[ ANTI_SLAM ].sub_context_3 * Anti_Slam_Pulse_Scalar * 100;
-					Anti_Slam_Width_Decay  = ((float)Menu_Array[ ANTI_SLAM ].sub_context_4 * 0.00001f ) * Anti_Slam_Pulse_Scalar;
-
-					Anti_Slam_Pulse_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_5 * Anti_Slam_Pulse_Scalar * 100;
-					Anti_Slam_Delay_Decay  = ((float)Menu_Array[ ANTI_SLAM ].sub_context_6 * 0.00001f ) * Anti_Slam_Pulse_Scalar;
+					Anti_Slam_Pulse_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_5;
+					Anti_Slam_Delay_Delta  = Menu_Array[ ANTI_SLAM ].sub_context_6;
 
 					Anti_Slam_Pulse_Count  = Menu_Array[ ANTI_SLAM ].sub_context_8;
 				}
@@ -5120,19 +5018,21 @@ void TIM6_DAC_IRQHandler()
 				// after a single pulse has been completed set up to do the next one if there is one specified
 				Anti_Slam_Pulse_Count -= 1;
 
-				Anti_Slam_Start_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_2;
+//				Anti_Slam_Start_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_2;
 
-				Anti_Slam_Pulse_Width  = Menu_Array[ ANTI_SLAM ].sub_context_3 * Anti_Slam_Pulse_Scalar * 100;
-				Anti_Slam_Width_Decay  = ((float)Menu_Array[ ANTI_SLAM ].sub_context_4 * 0.00001f ) * Anti_Slam_Pulse_Scalar;
+				int pulse_number = (Menu_Array[ ANTI_SLAM ].sub_context_8 - Anti_Slam_Pulse_Count);
 
-				Anti_Slam_Pulse_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_5 * Anti_Slam_Pulse_Scalar * 100;
-				Anti_Slam_Delay_Decay  = ((float)Menu_Array[ ANTI_SLAM ].sub_context_6 * 0.00001f ) * Anti_Slam_Pulse_Scalar;
+				Anti_Slam_Pulse_Width = Menu_Array[ ANTI_SLAM ].sub_context_3 + pulse_number * Menu_Array[ ANTI_SLAM ].sub_context_4;
+				Anti_Slam_Pulse_Delay = Menu_Array[ ANTI_SLAM ].sub_context_5 + pulse_number * Menu_Array[ ANTI_SLAM ].sub_context_6;
 			}
 		}
 		else
 		{
 			// all manipulation of the air ram from the anti-slam feature is complete
 			Anti_Slam_Active = 0;
+
+			// TODO: This is a safety feature in case I screw up and make a bug that causes the gate to come back up
+			SetGatePowerOff();
 		}
 	}
 
@@ -6046,7 +5946,7 @@ void InitMenus( void )
 	ClearContexts( TEST_LIGHTS );
 	Menu_Array[ TEST_LIGHTS ].menu_type	   = EDIT_CHOICE;
 	Menu_Array[ TEST_LIGHTS ].context 	   = TEST_LIGHTS_ALL_ON;
-	Menu_Array[ TEST_LIGHTS ].item_count   = 4;
+	Menu_Array[ TEST_LIGHTS ].item_count   = 3; // TODO: finish the random fade light effect
 	Menu_Array[ TEST_LIGHTS ].current_item = 1;
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].caption, "TEST LIGHTS" );
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ 0 ], SPACES );
@@ -6097,24 +5997,26 @@ void InitMenus( void )
 	Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_DISABLED;
 	Menu_Array[ ANTI_SLAM ].sub_context_2 = 0; // ANTI_SLAM_START_DELAY
 	Menu_Array[ ANTI_SLAM ].sub_context_3 = 0; // ANTI_SLAM_PULSE_WIDTH
-	Menu_Array[ ANTI_SLAM ].sub_context_4 = 0; // ANTI_SLAM_WIDTH_DECAY
-	Menu_Array[ ANTI_SLAM ].sub_context_5 = 1; // ANTI_SLAM_PULSE_DELAY
-	Menu_Array[ ANTI_SLAM ].sub_context_6 = 0; // ANTI_SLAM_DELAY_DECAY
-	Menu_Array[ ANTI_SLAM ].sub_context_7 = 1; // ANTI_SLAM_PULSE_SCALAR
+	Menu_Array[ ANTI_SLAM ].sub_context_4 = 0; // ANTI_SLAM_WIDTH_DELTA
+	Menu_Array[ ANTI_SLAM ].sub_context_5 = 0; // ANTI_SLAM_PULSE_DELAY
+	Menu_Array[ ANTI_SLAM ].sub_context_6 = 0; // ANTI_SLAM_DELAY_DELTA
+	Menu_Array[ ANTI_SLAM ].sub_context_7 = 1; // ANTI_SLAM_INCREMENT
 	Menu_Array[ ANTI_SLAM ].sub_context_8 = 1; // ANTI_SLAM_PULSE_COUNT
-	Menu_Array[ ANTI_SLAM ].item_count    = 10;
+	Menu_Array[ ANTI_SLAM ].item_count    = 12;
 	SetMenuText( Menu_Array[ ANTI_SLAM ].caption, "ANTI-SLAM FEATURE" );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ 0 ], SPACES );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DISABLED	  ], "\1 Disabled \2"		  );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_ENABLED	  ], "\1 Enabled \2"		  );
-	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_RAISE		  ], "\1 Raise Gate \2"		  );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_RAISE_GATE	  ], "\1 Raise Gate \2"		  );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DROP_GATE	  ], "\1 Drop Gate \2"		  );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_START_DELAY  ], "\1 Set Start Delay \2"  );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_WIDTH  ], "\1 Set Pulse Width \2"  );
-	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_WIDTH_DECAY  ], "\1 Set Width Decay \2"  );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_WIDTH_DELTA  ], "\1 Set Width Delta \2"  );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_DELAY  ], "\1 Set Pulse Delay \2"  );
-	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DELAY_DECAY  ], "\1 Set Delay Decay \2"  );
-	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_SCALAR ], "\1 Set Pulse Scalar \2" );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DELAY_DELTA  ], "\1 Set Delay Delta \2"  );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_INCREMENT	  ], "\1 Set Increment \2" 	  );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_PULSE_COUNT  ], "\1 Set Pulse Count \2"  );
+	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_USE_DEFAULTS ], "\1 Use Defaults \2" 	  );
 	ItemCopy( ANTI_SLAM, Menu_Array[ ANTI_SLAM ].context, 0, 1 );
 
 	// initialize timing histories array
