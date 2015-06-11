@@ -2986,15 +2986,16 @@ void DropGate( int test )
 
 	Cadence_Cancelled = 0;
 
+#ifdef CADENCE
+	uint32_t fade_volume = 0;
+	int		 volume		 = 0;
+	int		 step		 = 0;
+	int		 count_step  = 0;
+#endif
+
 	if( test == 0 )
 	{
 #ifdef CADENCE
-		uint32_t fade_volume = 0;
-
-		int volume		= 0;
-		int step		= 0;
-		int count_step  = 0;
-
 		// check to see if there is audio coming in
 		ADC_SoftwareStartConv( ADC2 );
 		while( !ADC_GetFlagStatus(ADC2, ADC_FLAG_EOC) );
@@ -3205,6 +3206,8 @@ void DoReactionGame( const unsigned int player_count )
 		UpdateLCD();
 
 		Delay( 500 );
+
+		PlaySilence( 100, 0 );
 
 #ifdef CADENCE
 		// start playing the voice part of the cadence
@@ -4991,7 +4994,6 @@ void TIM6_DAC_IRQHandler()
 			{
 				Anti_Slam_Pulse_Width -= 1;
 
-				// don't really need to keep track whether or not the gate power is on or off but might as well
 				if( Anti_Slam_Gate_Up == 0 )
 				{
 					Anti_Slam_Gate_Up = 1;
@@ -5004,7 +5006,6 @@ void TIM6_DAC_IRQHandler()
 			{
 				Anti_Slam_Pulse_Delay -= 1;
 
-				// don't really need to keep track whether or not the gate power is on or off but might as well
 				if( Anti_Slam_Gate_Up == 1 )
 				{
 					Anti_Slam_Gate_Up = 0;
@@ -5018,8 +5019,6 @@ void TIM6_DAC_IRQHandler()
 				// after a single pulse has been completed set up to do the next one if there is one specified
 				Anti_Slam_Pulse_Count -= 1;
 
-//				Anti_Slam_Start_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_2;
-
 				int pulse_number = (Menu_Array[ ANTI_SLAM ].sub_context_8 - Anti_Slam_Pulse_Count);
 
 				Anti_Slam_Pulse_Width = Menu_Array[ ANTI_SLAM ].sub_context_3 + pulse_number * Menu_Array[ ANTI_SLAM ].sub_context_4;
@@ -5028,6 +5027,9 @@ void TIM6_DAC_IRQHandler()
 		}
 		else
 		{
+			// reset the delay for the next gate drop
+			Anti_Slam_Start_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_2;
+
 			// all manipulation of the air ram from the anti-slam feature is complete
 			Anti_Slam_Active = 0;
 
@@ -6002,7 +6004,7 @@ void InitMenus( void )
 	Menu_Array[ ANTI_SLAM ].sub_context_6 = 0; // ANTI_SLAM_DELAY_DELTA
 	Menu_Array[ ANTI_SLAM ].sub_context_7 = 1; // ANTI_SLAM_INCREMENT
 	Menu_Array[ ANTI_SLAM ].sub_context_8 = 1; // ANTI_SLAM_PULSE_COUNT
-	Menu_Array[ ANTI_SLAM ].item_count    = 12;
+	Menu_Array[ ANTI_SLAM ].item_count    = 11; // TODO: Implement default settings!
 	SetMenuText( Menu_Array[ ANTI_SLAM ].caption, "ANTI-SLAM FEATURE" );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ 0 ], SPACES );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ ANTI_SLAM_DISABLED	  ], "\1 Disabled \2"		  );
