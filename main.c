@@ -20,7 +20,7 @@
 
 //#define SPLASH_TEXT
 //#define CADENCE
-//#define NUMBERS
+#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -247,7 +247,7 @@ enum MENUS	   { DROP_GATE = 0,
 
 				 MENUS_SIZE };
 
-enum AUX_OPTIONS				{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SPRINT_TIMER = 4, AUX_GATE_SWITCH = 5, AUX_SENSOR_SPACING = 6, AUX_SENSOR_TYPE = 7, AUX_LAP_COUNT = 8 };
+enum AUX_OPTIONS				{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SPRINT_TIMER = 4, AUX_GATE_SWITCH = 5, AUX_SENSOR_SPACING = 6, AUX_SENSOR_TYPE = 7, AUX_ALIGN_SENSOR = 8, AUX_LAP_COUNT = 9 };
 enum REACTION_GAME_OPTIONS		{ REACTION_GAME_ONE_PLAYER = 1, REACTION_GAME_TWO_PLAYER = 2, REACTION_GAME_VIEW_STATS = 3, REACTION_GAME_CLEAR_STATS = 4 };
 enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNCE_TIMES_ENABLED = 2 };
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
@@ -423,6 +423,7 @@ static unsigned int Reaction_Game_P2_WORST = 0;
 // temp code to capture battery decay profile
 static unsigned int Battery_Levels[ 100 ];
 #endif
+
 
 int main( void )
 {
@@ -1268,7 +1269,8 @@ int main( void )
 										case 5: { Menu_Array[ Menu_Index ].context = AUX_GATE_SWITCH;	 break;	}
 										case 6:	{ Menu_Array[ Menu_Index ].context = AUX_SENSOR_SPACING; break;	}
 										case 7:	{ Menu_Array[ Menu_Index ].context = AUX_SENSOR_TYPE; 	 break;	}
-										case 8:	{ Menu_Array[ Menu_Index ].context = AUX_LAP_COUNT; 	 break;	}
+										case 8:	{ Menu_Array[ Menu_Index ].context = AUX_ALIGN_SENSOR; 	 break;	}
+										case 9:	{ Menu_Array[ Menu_Index ].context = AUX_LAP_COUNT; 	 break;	}
 									}
 									continue;
 								}
@@ -1276,7 +1278,73 @@ int main( void )
 								// check for exit
 								WaitForButtonUp();
 
-								if( Menu_Array[ Menu_Index ].context == AUX_SENSOR_TYPE )
+								if( Menu_Array[ Menu_Index ].context == AUX_SPRINT_TIMER )
+								{
+									Timing_Active = 1;
+									DoSprintTimer( Menu_Index );
+									Timing_Active = 0;
+
+									WaitForButtonUp();
+
+									ItemCopy( Menu_Index, Menu_Array[ Menu_Index ].context, 0, 1 );
+
+									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
+									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+									UpdateLCD();
+
+									break;
+								}
+								else if( Menu_Array[ Menu_Index ].context == AUX_SENSOR_SPACING )
+								{
+									WriteLCD_LineCentered( "SENSOR SPACING", 0 );
+
+									while( 1 )
+									{
+										// add cursor
+										sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d inches \2", Menu_Array[ Menu_Index ].sub_context_1 );
+										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+										UpdateLCD();
+
+										// read controls
+										do
+										{	encoder_delta = ReadInputs( &inputs, 0 );
+
+										} while ( encoder_delta == 0 && inputs == 0 );
+
+										// change menu value
+										if( encoder_delta != 0 )
+										{
+											int new_value = Menu_Array[ Menu_Index ].sub_context_1 + encoder_delta;
+
+											if( new_value >= 12 && new_value <= 72 )
+											{
+												Menu_Array[ Menu_Index ].sub_context_1 = new_value;
+
+												if( Menu_Index == AUX_1_CONFIG )
+													Aux_1_Sensor_Spacing = new_value;
+												else
+													Aux_2_Sensor_Spacing = new_value;
+											}
+
+											continue;
+										}
+
+										// check for exit
+										WaitForButtonUp();
+
+										// restore the caption back to the correct aux config
+										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
+										UpdateLCD();
+
+										SaveEverythingToFlashMemory();
+										ReadInputs( &inputs, 0 );
+										inputs = 0;
+
+										break;
+									}
+									continue;
+								}
+								else if( Menu_Array[ Menu_Index ].context == AUX_SENSOR_TYPE )
 								{
 									WriteLCD_LineCentered( "SENSOR TYPE", 0 );
 
@@ -1319,55 +1387,39 @@ int main( void )
 									}
 									continue;
 								}
-								else if( Menu_Array[ Menu_Index ].context == AUX_SENSOR_SPACING )
+								else if( Menu_Array[ Menu_Index ].context == AUX_ALIGN_SENSOR )
 								{
-									WriteLCD_LineCentered( "SENSOR SPACING", 0 );
+									InitAudio();
+									PlaySilence( 100, 1 );
 
-									while( 1 )
-									{
-										// add cursor
-										sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d inches \2", Menu_Array[ Menu_Index ].sub_context_1 );
-										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
-										UpdateLCD();
+									// read controls
+									do
+									{	encoder_delta = ReadInputs( &inputs, 0 );
 
-										// read controls
-										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
-
-										} while ( encoder_delta == 0 && inputs == 0 );
-
-										// change menu value
-										if( encoder_delta != 0 )
+										if( Menu_Index == AUX_1_CONFIG )
 										{
-											int new_value = Menu_Array[ Menu_Index ].sub_context_1 + encoder_delta;
-
-											if( new_value >= 12 && new_value <= 48 )
-											{
-												Menu_Array[ Menu_Index ].sub_context_1 = new_value;
-
-												if( Menu_Index == AUX_1_CONFIG )
-													Aux_1_Sensor_Spacing = new_value;
-												else
-													Aux_2_Sensor_Spacing = new_value;
-											}
-
-											continue;
+											if( (GPIOB->IDR & 0x0080) == 0 )
+												PlayTone( 20, Square740HzData, SQUARE_740HZ_SIZE, 1 );
+										}
+										else if( Menu_Index == AUX_2_CONFIG )
+										{
+											if( (GPIOB->IDR & 0x0020) == 0 )
+												PlayTone( 20, Square740HzData, SQUARE_740HZ_SIZE, 1 );
 										}
 
-										// check for exit
-										WaitForButtonUp();
+									} while ( encoder_delta == 0 && inputs == 0 );
 
-										// restore the caption back to the correct aux config
-										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
-										UpdateLCD();
+									InitAudio();
 
-										SaveEverythingToFlashMemory();
-										ReadInputs( &inputs, 0 );
-										inputs = 0;
+									WaitForButtonUp();
 
-										break;
-									}
-									continue;
+									ItemCopy( Menu_Index, Menu_Array[ Menu_Index ].context, 0, 1 );
+
+									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
+									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+									UpdateLCD();
+
+									break;
 								}
 								else if( Menu_Array[ Menu_Index ].context == AUX_LAP_COUNT )
 								{
@@ -1413,22 +1465,6 @@ int main( void )
 										break;
 									}
 									continue;
-								}
-								else if( Menu_Array[ Menu_Index ].context == AUX_SPRINT_TIMER )
-								{
-									Timing_Active = 1;
-									DoSprintTimer( Menu_Index );
-									Timing_Active = 0;
-
-									WaitForButtonUp();
-
-									ItemCopy( Menu_Index, Menu_Array[ Menu_Index ].context, 0, 1 );
-
-									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
-									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
-									UpdateLCD();
-
-									break;
 								}
 
 								ItemCopy( Menu_Index, Menu_Array[ Menu_Index ].context, 0, 1 );
@@ -3657,12 +3693,11 @@ void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, c
 void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
 					 unsigned int * elapsed_time, float * speed , unsigned int * speed_integer, unsigned int * speed_fractional )
 {
-	// (1.34112mm/1us)(10,000us/is)(1in/25.4mm)(1ft/12in) = 44ft/s = 30mi/hr
-	// mph(Dmm,Tus)=10,000*Dmm/304.8Tus
 	*elapsed_time = (sensor_A < sensor_B) ? sensor_B : sensor_A;
 	const unsigned int sensor_delta	= (sensor_A < sensor_B) ? sensor_B - sensor_A : sensor_A - sensor_B;
 
-	*speed = (10000.0f * (25.4f * (float)sensor_spacing) ) / (304.8f * (float)(sensor_delta));
+	*speed = ((float)sensor_spacing * (3600.0f / 63360.0f)) / ( (float) sensor_delta / 10000.0f );
+
 	*speed_integer 	 = (int)*speed;
 	*speed_fractional= (int)(*speed * 1000.0f) % 1000;
 }
@@ -4070,6 +4105,34 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 			sensor_1	= 0;
 			sensor_2	= 0;
 
+#ifdef NUMBERS
+			// if button B was pressed on the remote announce last time, speed, or time + speed
+			if( GPIOB->IDR & 0x4000 )
+			{
+				PlaySilence( 100, 1 );
+
+				if( Timer_History[ 0 ].elapsed_time > 0 && Timer_History[ 0 ].is_a_speed == 1 )
+				{
+					PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+
+					if( Timer_History[ 0 ].is_a_speed == 1 )
+					{
+						PlaySample24khz( AtData, 0, AT_SIZE, 1 );
+						PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+						InitAudio();
+					}
+				}
+				else if( Timer_History[ 0 ].is_a_speed == 1 )
+				{
+					PlaySpeed( Timer_History[ 0 ].speed_integer, Timer_History[ 0 ].speed_fractional );
+				}
+				else
+				{
+					PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+				}
+				InitAudio();
+			}
+#endif
 			continue;
 		}
 
@@ -4106,6 +4169,15 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 					WriteLCD_LineCentered( "ELAPSED TIME", 0 );
 					WriteLCD_LineCentered( Timer_History[ 0 ].time_string, 1 );
 					UpdateLCD();
+#ifdef NUMBERS
+					if( Menu_Array[ AUTO_ANNOUNCE_TIMES ].context == AUTO_ANNOUNCE_TIMES_ENABLED )
+					{
+						PlaySilence( 100, 1 );
+						PlayTimeOrPercent( Timer_History[ 0 ].elapsed_time / 10, PLAY_TIME );
+						PlaySilence( 100, 1 );
+						InitAudio();
+					}
+#endif
 				}
 				else
 				{
@@ -5852,7 +5924,7 @@ void InitMenus( void )
 	Menu_Array[ AUX_1_CONFIG ].menu_type	 = EDIT_CHOICE;
 	Menu_Array[ AUX_1_CONFIG ].context 		 = AUX_DISABLED;
 	Menu_Array[ AUX_1_CONFIG ].sub_context_1 = 16;
-	Menu_Array[ AUX_1_CONFIG ].item_count 	 = 8;
+	Menu_Array[ AUX_1_CONFIG ].item_count 	 = 9;
 	Menu_Array[ AUX_1_CONFIG ].current_item	 = 1;
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].caption, "AUXILIARY 1" );
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ 0 ],	SPACES );
@@ -5863,6 +5935,7 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_GATE_SWITCH 	 ],	"\1 Gate Drop Switch \2");
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SENSOR_SPACING ],	"\1Set Sensor Spacing\2");
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SENSOR_TYPE 	 ], "\1 Set Sensor Type \2" );
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_ALIGN_SENSOR 	 ], "\1 Align Sensor \2" 	);
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_LAP_COUNT 	 ], "\1 Set Lap Count \2" 	);
 	ItemCopy( AUX_1_CONFIG, Menu_Array[ AUX_1_CONFIG ].context, 0, 1 );
 	Aux_1_Sensor_Spacing = Menu_Array[ AUX_1_CONFIG ].sub_context_1;
@@ -5871,7 +5944,7 @@ void InitMenus( void )
 	Menu_Array[ AUX_2_CONFIG ].menu_type	 = EDIT_CHOICE;
 	Menu_Array[ AUX_2_CONFIG ].context 		 = AUX_DISABLED;
 	Menu_Array[ AUX_2_CONFIG ].sub_context_1 = 16;
-	Menu_Array[ AUX_2_CONFIG ].item_count 	 = 8;
+	Menu_Array[ AUX_2_CONFIG ].item_count 	 = 9;
 	Menu_Array[ AUX_2_CONFIG ].current_item	 = 1;
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].caption, "AUXILIARY 2" );
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ 0 ],	SPACES );
@@ -5882,6 +5955,7 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_GATE_SWITCH	 ],	"\1 Gate Drop Switch \2");
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SENSOR_SPACING ],	"\1Set Sensor Spacing\2");
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SENSOR_TYPE 	 ], "\1 Set Sensor Type \2" );
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_ALIGN_SENSOR 	 ], "\1 Align Sensor \2" 	);
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_LAP_COUNT 	 ], "\1 Set Lap Count \2" 	);
 	ItemCopy( AUX_2_CONFIG, Menu_Array[ AUX_2_CONFIG ].context, 0, 1 );
 	Aux_2_Sensor_Spacing = Menu_Array[ AUX_2_CONFIG ].sub_context_1;
