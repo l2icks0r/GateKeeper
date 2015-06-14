@@ -18,8 +18,8 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define SPLASH_TEXT
-//#define CADENCE
+#define SPLASH_TEXT
+#define CADENCE
 #define NUMBERS
 //#define BATTERY_LOG
 
@@ -247,7 +247,8 @@ enum MENUS	   { DROP_GATE = 0,
 
 				 MENUS_SIZE };
 
-enum AUX_OPTIONS				{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SPRINT_TIMER = 4, AUX_GATE_SWITCH = 5, AUX_SENSOR_SPACING = 6, AUX_SENSOR_TYPE = 7, AUX_ALIGN_SENSOR = 8, AUX_LAP_COUNT = 9 };
+enum AUX_OPTIONS				{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SPRINT_TIMER = 4, AUX_GATE_SWITCH = 5, AUX_SENSOR_SPACING = 6, AUX_SENSOR_TYPE = 7,
+								  AUX_ALIGN_SENSOR_A = 8, AUX_ALIGN_SENSOR_B = 9, AUX_LAP_COUNT = 10 };
 enum REACTION_GAME_OPTIONS		{ REACTION_GAME_ONE_PLAYER = 1, REACTION_GAME_TWO_PLAYER = 2, REACTION_GAME_VIEW_STATS = 3, REACTION_GAME_CLEAR_STATS = 4 };
 enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNCE_TIMES_ENABLED = 2 };
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
@@ -1269,8 +1270,9 @@ int main( void )
 										case 5: { Menu_Array[ Menu_Index ].context = AUX_GATE_SWITCH;	 break;	}
 										case 6:	{ Menu_Array[ Menu_Index ].context = AUX_SENSOR_SPACING; break;	}
 										case 7:	{ Menu_Array[ Menu_Index ].context = AUX_SENSOR_TYPE; 	 break;	}
-										case 8:	{ Menu_Array[ Menu_Index ].context = AUX_ALIGN_SENSOR; 	 break;	}
-										case 9:	{ Menu_Array[ Menu_Index ].context = AUX_LAP_COUNT; 	 break;	}
+										case 8:	{ Menu_Array[ Menu_Index ].context = AUX_ALIGN_SENSOR_A; break;	}
+										case 9:	{ Menu_Array[ Menu_Index ].context = AUX_ALIGN_SENSOR_B; break;	}
+										case 10:{ Menu_Array[ Menu_Index ].context = AUX_LAP_COUNT; 	 break;	}
 									}
 									continue;
 								}
@@ -1387,7 +1389,8 @@ int main( void )
 									}
 									continue;
 								}
-								else if( Menu_Array[ Menu_Index ].context == AUX_ALIGN_SENSOR )
+								else if( Menu_Array[ Menu_Index ].context == AUX_ALIGN_SENSOR_A ||
+										 Menu_Array[ Menu_Index ].context == AUX_ALIGN_SENSOR_B )
 								{
 									InitAudio();
 									PlaySilence( 100, 1 );
@@ -1396,15 +1399,27 @@ int main( void )
 									do
 									{	encoder_delta = ReadInputs( &inputs, 0 );
 
-										if( Menu_Index == AUX_1_CONFIG )
+										const int sensor_1A = ((GPIOB->IDR & 0x0080) == 0) ? 1 : 0;
+										const int sensor_1B = ((GPIOB->IDR & 0x0100) == 0) ? 1 : 0;
+										const int sensor_2A = ((GPIOB->IDR & 0x0010) == 0) ? 1 : 0;
+										const int sensor_2B = ((GPIOB->IDR & 0x0020) == 0) ? 1 : 0;
+
+										if( sensor_1A || sensor_1B || sensor_2A || sensor_2B )
 										{
-											if( (GPIOB->IDR & 0x0080) == 0 )
-												PlayTone( 20, Square740HzData, SQUARE_740HZ_SIZE, 1 );
-										}
-										else if( Menu_Index == AUX_2_CONFIG )
-										{
-											if( (GPIOB->IDR & 0x0020) == 0 )
-												PlayTone( 20, Square740HzData, SQUARE_740HZ_SIZE, 1 );
+											if( Menu_Index == AUX_1_CONFIG )
+											{
+												if( sensor_1A && Menu_Array[ Menu_Index ].context == AUX_ALIGN_SENSOR_A )
+													PlayTone( 20, Square740HzData, SQUARE_740HZ_SIZE, 1 );
+												else if( sensor_1B && Menu_Array[ Menu_Index ].context == AUX_ALIGN_SENSOR_B )
+													PlayTone( 20, Square740HzData, SQUARE_740HZ_SIZE, 1 );
+											}
+											else
+											{
+												if( sensor_2A && Menu_Array[ Menu_Index ].context == AUX_ALIGN_SENSOR_A )
+													PlayTone( 20, Square740HzData, SQUARE_740HZ_SIZE, 1 );
+												else if( sensor_2B && Menu_Array[ Menu_Index ].context == AUX_ALIGN_SENSOR_B )
+													PlayTone( 20, Square740HzData, SQUARE_740HZ_SIZE, 1 );
+											}
 										}
 
 									} while ( encoder_delta == 0 && inputs == 0 );
@@ -5924,7 +5939,7 @@ void InitMenus( void )
 	Menu_Array[ AUX_1_CONFIG ].menu_type	 = EDIT_CHOICE;
 	Menu_Array[ AUX_1_CONFIG ].context 		 = AUX_DISABLED;
 	Menu_Array[ AUX_1_CONFIG ].sub_context_1 = 16;
-	Menu_Array[ AUX_1_CONFIG ].item_count 	 = 9;
+	Menu_Array[ AUX_1_CONFIG ].item_count 	 = 10;
 	Menu_Array[ AUX_1_CONFIG ].current_item	 = 1;
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].caption, "AUXILIARY 1" );
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ 0 ],	SPACES );
@@ -5935,7 +5950,8 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_GATE_SWITCH 	 ],	"\1 Gate Drop Switch \2");
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SENSOR_SPACING ],	"\1Set Sensor Spacing\2");
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_SENSOR_TYPE 	 ], "\1 Set Sensor Type \2" );
-	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_ALIGN_SENSOR 	 ], "\1 Align Sensor \2" 	);
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_ALIGN_SENSOR_A ], "\1 Align Sensor A \2"  );
+	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_ALIGN_SENSOR_B ], "\1 Align Sensor B \2"  );
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].item[ AUX_LAP_COUNT 	 ], "\1 Set Lap Count \2" 	);
 	ItemCopy( AUX_1_CONFIG, Menu_Array[ AUX_1_CONFIG ].context, 0, 1 );
 	Aux_1_Sensor_Spacing = Menu_Array[ AUX_1_CONFIG ].sub_context_1;
@@ -5944,7 +5960,7 @@ void InitMenus( void )
 	Menu_Array[ AUX_2_CONFIG ].menu_type	 = EDIT_CHOICE;
 	Menu_Array[ AUX_2_CONFIG ].context 		 = AUX_DISABLED;
 	Menu_Array[ AUX_2_CONFIG ].sub_context_1 = 16;
-	Menu_Array[ AUX_2_CONFIG ].item_count 	 = 9;
+	Menu_Array[ AUX_2_CONFIG ].item_count 	 = 10;
 	Menu_Array[ AUX_2_CONFIG ].current_item	 = 1;
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].caption, "AUXILIARY 2" );
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ 0 ],	SPACES );
@@ -5955,7 +5971,8 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_GATE_SWITCH	 ],	"\1 Gate Drop Switch \2");
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SENSOR_SPACING ],	"\1Set Sensor Spacing\2");
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_SENSOR_TYPE 	 ], "\1 Set Sensor Type \2" );
-	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_ALIGN_SENSOR 	 ], "\1 Align Sensor \2" 	);
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_ALIGN_SENSOR_A ], "\1 Align Sensor A \2"  );
+	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_ALIGN_SENSOR_B ], "\1 Align Sensor B \2"  );
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].item[ AUX_LAP_COUNT 	 ], "\1 Set Lap Count \2" 	);
 	ItemCopy( AUX_2_CONFIG, Menu_Array[ AUX_2_CONFIG ].context, 0, 1 );
 	Aux_2_Sensor_Spacing = Menu_Array[ AUX_2_CONFIG ].sub_context_1;
