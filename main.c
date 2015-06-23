@@ -2497,7 +2497,6 @@ int main( void )
 								}
 								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DROP_GATE )
 								{
-									PlaySilence( 100, 0 );
 									DropGate( 1 );
 								}
 								else if( (Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_START_DELAY) || (Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_PULSE_WIDTH) )
@@ -2956,6 +2955,7 @@ void DropGate( int test )
 	Dropping_Gate	  = 1;
 
 	Cadence_Cancelled = 0;
+	Cancel_Timing	  = 0;
 
 #ifdef CADENCE
 	uint32_t fade_volume = 0;
@@ -3079,6 +3079,8 @@ void DropGate( int test )
 		else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
 		{
 			StartGatePowerOffTimer();  // gate turned off after Gate_Drop_Delay processed by interrupt 6
+
+			if( test == 1 ) PlaySilence( 60, 0 );	// HORRIBLE hacky fix because of not having sound done through DMA
 		}
 
 		// play the cadence tones and light the lights
@@ -5003,8 +5005,8 @@ void TIM6_DAC_IRQHandler()
 		else
 		{
 			// all manipulation of the air ram from the anti-slam feature is complete
-			Anti_Slam_Gate_Up	= 0;
-			Anti_Slam_Active	= 0;
+			Anti_Slam_Gate_Up = 0;
+			Anti_Slam_Active  = 0;
 
 			SetGatePowerOff();
 		}
@@ -5014,7 +5016,7 @@ void TIM6_DAC_IRQHandler()
 	if( Pulse_Solenoid == 1 || Gate_Power_Off_Pending == 1 ) return;
 
 	// abort if any button is pressed only when in drop gate state
-	if( Dropping_Gate == 1 && Cadence_Cancelled == 0 )
+	if( Dropping_Gate == 1 && Cadence_Cancelled == 0 && Anti_Slam_Active == 0 )
 	{
 		if( (GPIOE->IDR & 0x0010) == 0 || ( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED &&
 										  ((GPIOA->IDR & 0x0001) || (GPIOB->IDR & 0x4000) || (GPIOB->IDR & 0x8000) || (GPIOD->IDR & 0x0100))) )
@@ -5969,9 +5971,10 @@ void InitMenus( void )
 	Menu_Array[ ANTI_SLAM ].menu_type	  = EDIT_CHOICE;
 	Menu_Array[ ANTI_SLAM ].context		  = ANTI_SLAM_DISABLED;
 	Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_DISABLED;
-	Menu_Array[ ANTI_SLAM ].sub_context_2 = 0; // ANTI_SLAM_START_DELAY
-	Menu_Array[ ANTI_SLAM ].sub_context_3 = 0; // ANTI_SLAM_PULSE_WIDTH
-	Menu_Array[ ANTI_SLAM ].sub_context_4 = 1; // ANTI_SLAM_INCREMENT
+	Menu_Array[ ANTI_SLAM ].sub_context_2 = 2500; // ANTI_SLAM_START_DELAY
+	Menu_Array[ ANTI_SLAM ].sub_context_3 = 2500; // ANTI_SLAM_PULSE_WIDTH
+	Menu_Array[ ANTI_SLAM ].sub_context_4 = 10;	  // ANTI_SLAM_INCREMENT
+	Menu_Array[ ANTI_SLAM ].current_item  = 0;
 	Menu_Array[ ANTI_SLAM ].item_count    = 7;
 	SetMenuText( Menu_Array[ ANTI_SLAM ].caption, "ANTI-SLAM FEATURE" );
 	SetMenuText( Menu_Array[ ANTI_SLAM ].item[ 0 ], SPACES );
