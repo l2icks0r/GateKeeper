@@ -88,6 +88,7 @@
 static char display_memory		[ DISPLAY_HEIGHT ] [ DISPLAY_WIDTH ];
 static char display_memory_cache[ DISPLAY_HEIGHT ] [ DISPLAY_WIDTH ];
 
+
 // F4 initialization
 void InitPorts 				( void );
 void InitClocks				( void );
@@ -3994,14 +3995,16 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 	return 0;
 }
 
-void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the case when the second sensor is a time only
+void DoSprintTimer( const unsigned int aux_config )
 {
 	unsigned int sensor_1 = 0;
 	unsigned int sensor_2 = 0;
 
 	unsigned int sensor_1A = 0, sensor_1B = 0, sensor_2A = 0, sensor_2B = 0;
 
-	char time_string[ DISPLAY_WIDTH ] = ZEROS;
+	char time_string[ DISPLAY_WIDTH ];
+
+	memset( time_string, 0, DISPLAY_WIDTH );
 
 	// reset all the timers
 	Timer6_Tick			= 0;
@@ -4137,6 +4140,8 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 				Aux_2_Sensor_A_Tick = 0;
 				Aux_2_Sensor_B_Tick = 0;
 
+				memset( time_string, 0, DISPLAY_WIDTH );
+
 				continue;
 			}
 
@@ -4199,6 +4204,8 @@ void DoSprintTimer( const unsigned int aux_config )	// TODO: need to handle the 
 				Aux_1_Sensor_B_Tick = 0;
 				Aux_2_Sensor_A_Tick = 0;
 				Aux_2_Sensor_B_Tick = 0;
+
+				memset( time_string, 0, DISPLAY_WIDTH );
 
 				continue;
 			}
