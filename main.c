@@ -18,9 +18,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define SPLASH_TEXT
-//#define CADENCE
-//#define NUMBERS
+#define SPLASH_TEXT
+#define CADENCE
+#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -3239,45 +3239,48 @@ void DoReactionGame( const unsigned int player_count )
 
 		if( player_count == 1 )
 		{
-			if( aux1_sensor == 0xDEAD )
+			if( aux1_sensor == 0 )
+			{
+				WriteLCD_LineCentered( "TOO SLOW", 0 );
+			}
+			else if( aux1_sensor == 0xDEAD || aux1_sensor <= 1 )
+			{
 				WriteLCD_LineCentered( "HIT THE GATE", 0 );
+			}
 			else
 			{
-				if( aux1_sensor == 0 )
-					WriteLCD_LineCentered( "Too Slow", 0 );
-				else
-				{
-					aux1_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
-					PrintElapsedTime( aux1_sensor, 1, 0 );
-				}
+				aux1_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
+				PrintElapsedTime( aux1_sensor, 1, 0 );
 			}
 		}
 		else
 		{
-			if( aux1_sensor == 0xDEAD )
+			if( aux1_sensor == 0 )
+			{
+				WriteLCD_LineCentered( "TOO SLOW", 0 );
+			}
+			else if( aux1_sensor == 0xDEAD || aux1_sensor <= 1 )
+			{
 				WriteLCD_LineCentered( "HIT THE GATE", 0 );
+			}
 			else
 			{
-				if( aux1_sensor == 0 )
-					WriteLCD_LineCentered( "Too Slow", 0 );
-				else
-				{
-					aux1_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
-					PrintElapsedTime( aux1_sensor, 1, 0 );
-				}
+				aux1_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
+				PrintElapsedTime( aux1_sensor, 1, 0 );
 			}
 
-			if( aux2_sensor == 0xDEAD )
+			if( aux2_sensor == 0 )
+			{
+				WriteLCD_LineCentered( "TOO SLOW", 1 );
+			}
+			else if( aux2_sensor == 0xDEAD || aux2_sensor <= 1 )
+			{
 				WriteLCD_LineCentered( "HIT THE GATE", 1 );
+			}
 			else
 			{
-				if( aux2_sensor == 0 )
-					WriteLCD_LineCentered( "Too Slow", 1 );
-				else
-				{
-					aux2_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
-					PrintElapsedTime( aux2_sensor, 1, 1 );
-				}
+				aux2_sensor -= Menu_Array[ GATE_DROPS_ON ].context * 10;
+				PrintElapsedTime( aux2_sensor, 1, 1 );
 			}
 		}
 
@@ -3285,7 +3288,7 @@ void DoReactionGame( const unsigned int player_count )
 
 		Delay( 2000 );
 
-		if( aux1_sensor != 0xDEAD && aux1_sensor != 0 )
+		if( aux1_sensor != 0xDEAD && aux1_sensor > 1 )
 		{
 			if( p1_game_divisor == 1 && Reaction_Game_P1_BEST != Reaction_Game_P1_WORST )
 			{
@@ -3312,7 +3315,7 @@ void DoReactionGame( const unsigned int player_count )
 			p1_game_divisor += 1;
 		}
 
-		if( aux2_sensor != 0xDEAD && aux2_sensor != 0 && player_count == 2 )
+		if( aux2_sensor != 0xDEAD && aux2_sensor > 1 && player_count == 2 )
 		{
 			if( p2_game_divisor == 1 && Reaction_Game_P2_BEST != Reaction_Game_P2_WORST )
 			{
@@ -3364,50 +3367,51 @@ void DoReactionGame( const unsigned int player_count )
 		}
 		else
 		{
-			if( aux1_sensor != 0 && aux2_sensor != 0 && aux1_sensor != 0xDEAD && aux2_sensor != 0xDEAD && aux1_sensor == aux2_sensor  )
-			{
-				WriteLCD_LineCentered( "TIE GAME!!!", 0 );
-				WriteLCD_LineCentered( "TIE GAME!!!", 1 );
-			}
-			else if( aux1_sensor == 0xDEAD && aux2_sensor == 0xDEAD )
-			{
-				WriteLCD_LineCentered( "No Winner", 0 );
-				WriteLCD_LineCentered( "Both hit the gate", 1 );
-			}
-			else if( aux1_sensor == 0 && aux2_sensor == 0 )
+			if( aux1_sensor == 0 && aux2_sensor == 0 )
 			{
 				WriteLCD_LineCentered( "No Winner", 0 );
 				WriteLCD_LineCentered( "Both are too slow", 1 );
 			}
-			else if( (aux1_sensor == 0 && aux2_sensor == 0xDEAD) || (aux2_sensor == 0 && aux1_sensor == 0xDEAD) )
+			else if( ( aux1_sensor == 0xDEAD && aux2_sensor == 0xDEAD ) || ( aux1_sensor == 1 && aux2_sensor == 1 ) )
 			{
 				WriteLCD_LineCentered( "No Winner", 0 );
-				WriteLCD_LineCentered( "", 1 );
+				WriteLCD_LineCentered( "Both hit the gate", 1 );
 			}
-			else if( aux1_sensor == 0 || aux1_sensor == 0xDEAD )
+			else if( (aux1_sensor == 1 && aux2_sensor == 0) || (aux1_sensor == 0 && aux2_sensor == 1 ) )
+			{
+				WriteLCD_LineCentered( "No Winner", 0 );
+				WriteLCD_LineCentered( "Both had bad gates", 1 );
+			}
+			else if( aux1_sensor == aux2_sensor )
+			{
+				WriteLCD_LineCentered( "TIE GAME!!!", 0 );
+				WriteLCD_LineCentered( "TIE GAME!!!", 1 );
+			}
+			else if( aux2_sensor <= 1 && aux1_sensor > 1 )
+			{
+				WriteLCD_LineCentered( "Player One WINS!", 0 );
+				WriteLCD_LineCentered( "", 1 );
+
+			}
+			else if( aux1_sensor <= 1 && aux2_sensor > 1 )
 			{
 				WriteLCD_LineCentered( "", 0 );
 				WriteLCD_LineCentered( "Player Two WINS!", 1 );
 			}
-			else if( aux2_sensor == 0 || aux2_sensor == 0xDEAD )
+			else if( (aux1_sensor < aux2_sensor) )
 			{
 				WriteLCD_LineCentered( "Player One WINS!", 0 );
 				WriteLCD_LineCentered( "", 1 );
 			}
-			else if( aux1_sensor < aux2_sensor )
-			{
-				WriteLCD_LineCentered( "Player One WINS!", 0 );
-				WriteLCD_LineCentered( "", 1 );
-			}
-			else if( aux1_sensor > aux2_sensor )
+			else if( (aux2_sensor < aux1_sensor) )
 			{
 				WriteLCD_LineCentered( "", 0 );
 				WriteLCD_LineCentered( "Player Two WINS!", 1 );
 			}
 			else
 			{
-				WriteLCD_LineCentered( "?", 0 );
-				WriteLCD_LineCentered( "?", 1 );
+				WriteLCD_LineCentered( "NO", 0 );
+				WriteLCD_LineCentered( "WINNER", 1 );
 			}
 
 			UpdateLCD();
