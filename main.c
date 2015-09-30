@@ -18,9 +18,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define SPLASH_TEXT
-#define CADENCE
-#define NUMBERS
+//#define SPLASH_TEXT
+//#define CADENCE
+//#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -195,6 +195,7 @@ uint32_t GetFlashSector( uint32_t Address );
 
 // startup light test
 int LightTestCycle( const unsigned int allow_abort );
+void ReadLightExitControlInput( int light_context );
 
 
 enum INPUTS { 	BUTTON_A 		= 0x0001,
@@ -254,7 +255,7 @@ enum REACTION_GAME_OPTIONS		{ REACTION_GAME_ONE_PLAYER = 1, REACTION_GAME_TWO_PL
 enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNCE_TIMES_ENABLED = 2 };
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
 enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
-enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_UP_DOWN = 2, TEST_LIGHTS_DARK_LIGHT = 3, TEST_LIGHTS_RANDOM = 4 };
+enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_RED = 2, TEST_LIGHTS_AMBER1 = 3, TEST_LIGHTS_AMBER2 = 4, TEST_LIGHTS_GREEN = 5, TEST_LIGHTS_UP_DOWN = 6, TEST_LIGHTS_DARK_LIGHT = 7, TEST_LIGHTS_RANDOM = 8 };
 enum ANTI_SLAM_OPTIONS			{ ANTI_SLAM_DISABLED = 1, ANTI_SLAM_ENABLED = 2, ANTI_SLAM_RAISE_GATE = 3, ANTI_SLAM_DROP_GATE = 4, ANTI_SLAM_START_DELAY = 5, ANTI_SLAM_PULSE_WIDTH = 6, ANTI_SLAM_INCREMENT = 7 };
 
 
@@ -412,6 +413,9 @@ static unsigned int Reaction_Game_P2_BEST  = 0;
 static unsigned int Reaction_Game_P2_AVG   = 0;
 static unsigned int Reaction_Game_P2_WORST = 0;
 
+// debug for light test
+static unsigned short Light_Code = 0x8888;
+
 
 #ifdef BATTERY_LOG
 // temp code to capture battery decay profile
@@ -419,12 +423,18 @@ static unsigned int Battery_Levels[ 100 ];
 #endif
 
 
+#define STM32_UUID ((uint32_t *)0x1FFF7A10)
+
 int main( void )
 {
 #ifdef BATTERY_LOG
 	int i = 0;
 	for(; i < 100; i++ ) Battery_Levels[ i ] = 0;
 #endif
+
+    uint32_t idPart1 = STM32_UUID[0];
+    uint32_t idPart2 = STM32_UUID[1];
+    uint32_t idPart3 = STM32_UUID[2];
 
 	SystemInit();  // line 221 of system_stm32f4xx.c
 
@@ -438,14 +448,14 @@ int main( void )
 
 	InitMenus();
 
-	BatteryLevel( 1 );
-
 	Starting_Charge_Level = 0;
 	Charge_Change = 0;
 
 	InitAudio();
 
 	ReadEverythingFromFlashMemory();
+
+	BatteryLevel( 1 );
 
 	// enable gates
  	GPIO_ResetBits( GPIOA, GPIO_Pin_3 );	// gate drive enable
@@ -484,7 +494,7 @@ int main( void )
 #ifdef SPLASH_TEXT
 				// write splash text
 				WriteLCD_LineCentered( "** RRP BMX GATES **", 0 );
-				WriteLCD_LineCentered( "Epicenter v0.9.3", 1 );
+				WriteLCD_LineCentered( "Epicenter v0.9.4", 1 );
 				UpdateLCD();
 
 				LightTestCycle( 0 );
@@ -2005,9 +2015,13 @@ int main( void )
 									switch( new_item )
 									{
 										case 1: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_ALL_ON; 		break;	}
-										case 2: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_UP_DOWN;		break;	}
-										case 3: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_DARK_LIGHT;	break;	}
-										case 4: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_RANDOM;		break;	}
+										case 2: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_RED; 			break;	}
+										case 3: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_AMBER1; 		break;	}
+										case 4: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_AMBER2; 		break;	}
+										case 5: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_GREEN; 		break;	}
+										case 6: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_UP_DOWN;		break;	}
+										case 7: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_DARK_LIGHT;	break;	}
+										case 8: { Menu_Array[ TEST_LIGHTS ].context = TEST_LIGHTS_RANDOM;		break;	}
 									}
 									continue;
 								}
@@ -2030,6 +2044,70 @@ int main( void )
 									GPIO_ResetBits( GPIOD, GPIO_Pin_12 );	// RED light OFF
 									GPIO_ResetBits( GPIOD, GPIO_Pin_13 );	// AMBER 1 light OFF
 									GPIO_ResetBits( GPIOD, GPIO_Pin_14 );	// AMBER 2 light OFF
+									GPIO_ResetBits( GPIOD, GPIO_Pin_15 );	// GREEN light OFF
+
+									ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
+									WriteLCD_LineCentered( Menu_Array[ TEST_LIGHTS ].caption, 0 );
+									UpdateLCD();
+
+									WaitForButtonUp();
+
+									break;
+								}
+								else if( Menu_Array[ TEST_LIGHTS ].context == TEST_LIGHTS_RED )
+								{
+									GPIO_SetBits( GPIOD, GPIO_Pin_12 );	// RED light ON
+
+									ReadLightExitControlInput( TEST_LIGHTS_RED );
+
+									GPIO_ResetBits( GPIOD, GPIO_Pin_12 );	// RED light OFF
+
+									ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
+									WriteLCD_LineCentered( Menu_Array[ TEST_LIGHTS ].caption, 0 );
+									UpdateLCD();
+
+									WaitForButtonUp();
+
+									break;
+								}
+								else if( Menu_Array[ TEST_LIGHTS ].context == TEST_LIGHTS_AMBER1 )
+								{
+									GPIO_SetBits( GPIOD, GPIO_Pin_13 );	// AMBER 1 light ON
+
+									ReadLightExitControlInput( TEST_LIGHTS_AMBER1 );
+
+									GPIO_ResetBits( GPIOD, GPIO_Pin_13 );	// AMBER 1 light OFF
+
+									ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
+									WriteLCD_LineCentered( Menu_Array[ TEST_LIGHTS ].caption, 0 );
+									UpdateLCD();
+
+									WaitForButtonUp();
+
+									break;
+								}
+								else if( Menu_Array[ TEST_LIGHTS ].context == TEST_LIGHTS_AMBER2 )
+								{
+									GPIO_SetBits( GPIOD, GPIO_Pin_14 );	// AMBER 2 light ON
+
+									ReadLightExitControlInput( TEST_LIGHTS_AMBER2 );
+
+									GPIO_ResetBits( GPIOD, GPIO_Pin_14 );	// AMBER 2 light OFF
+
+									ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
+									WriteLCD_LineCentered( Menu_Array[ TEST_LIGHTS ].caption, 0 );
+									UpdateLCD();
+
+									WaitForButtonUp();
+
+									break;
+								}
+								else if( Menu_Array[ TEST_LIGHTS ].context == TEST_LIGHTS_GREEN )
+								{
+									GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN light ON
+
+									ReadLightExitControlInput( TEST_LIGHTS_GREEN );
+
 									GPIO_ResetBits( GPIOD, GPIO_Pin_15 );	// GREEN light OFF
 
 									ItemCopy( TEST_LIGHTS, Menu_Array[ TEST_LIGHTS ].context, 0, 1 );
@@ -3516,7 +3594,7 @@ int LightTestCycle( const unsigned int allow_abort )
 		else
 			GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
 
-		if( allow_abort == 1 )
+		if( allow_abort == 1 || allow_abort == 3 )
 		{
 			int inputs = 0;
 			ReadInputs( &inputs, 0 );
@@ -3526,7 +3604,7 @@ int LightTestCycle( const unsigned int allow_abort )
 				WaitForButtonUp();
 
 				abort_flag = 1;
-				break;
+				if( allow_abort == 1 ) break;
 			}
 		}
 	}
@@ -3539,6 +3617,78 @@ int LightTestCycle( const unsigned int allow_abort )
 	return abort_flag;
 }
 
+void ReadLightExitControlInput( int light_context )
+{
+	int encoder_delta = 0;
+	int inputs = 0;
+
+	while( inputs != BUTTON_E )
+	{
+		// read controls
+		do
+		{	encoder_delta = ReadInputs( &inputs, 1 );
+
+		} while (encoder_delta == 0 && inputs == 0 );
+
+		if( encoder_delta == 0 ) break;
+
+		switch( light_context )
+		{
+			case TEST_LIGHTS_RED:
+			{
+				int new_digit = (Light_Code & 0xF000) + 0x1000 * encoder_delta;
+				new_digit = (new_digit < 0 ) ? 0 : new_digit;
+				new_digit = (new_digit > 0xF000 ) ? 0xF000 : new_digit;
+				Light_Code = (Light_Code & 0x0FFF) | (short)new_digit;
+				break;
+			}
+			case TEST_LIGHTS_AMBER1:
+			{
+				int new_digit = (Light_Code & 0x0F00) + 0x0100 * encoder_delta;
+				new_digit = (new_digit < 0 ) ? 0 : new_digit;
+				new_digit = (new_digit > 0x0F00 ) ? 0x0F00 : new_digit;
+				Light_Code = (Light_Code & 0xF0FF) | (short)new_digit;
+				break;
+			}
+			case TEST_LIGHTS_AMBER2:
+			{
+				int new_digit = (Light_Code & 0x00F0) + 0x0010 * encoder_delta;
+				new_digit = (new_digit < 0 ) ? 0 : new_digit;
+				new_digit = (new_digit > 0x00F0 ) ? 0x00F0 : new_digit;
+				Light_Code = (Light_Code & 0xFF0F) | (short)new_digit;
+				break;
+			}
+			case TEST_LIGHTS_GREEN:
+			{
+				int new_digit = (Light_Code & 0x000F) + 0x0001 * encoder_delta;
+				new_digit = (new_digit < 0 ) ? 0 : new_digit;
+				new_digit = (new_digit > 0x000F ) ? 0x000F : new_digit;
+				Light_Code = (Light_Code & 0xFFF0) | (short)new_digit;
+				break;
+			}
+		}
+
+		if( Light_Code == 0x7A4F )
+		{
+			WriteLCD_LineCentered( "Copyright 2015", 0 );
+			WriteLCD_LineCentered( "l2icks0r! Designs", 1 );
+			UpdateLCD();
+
+			int abort_cycle = 0;
+
+			do
+			{
+				abort_cycle += LightTestCycle( 3 );
+
+			} while ( abort_cycle < 4 );
+
+			WriteLCD_LineCentered( "Unauthorized Device", 0 );
+			WriteLCD_LineCentered( "Illegal counterfeit", 1 );
+			UpdateLCD();
+			while(1);
+		}
+	}
+}
 
 unsigned int CheckSensor( const unsigned int sensor )
 {
@@ -5929,11 +6079,15 @@ void InitMenus( void )
 	ClearContexts( TEST_LIGHTS );
 	Menu_Array[ TEST_LIGHTS ].menu_type	   = EDIT_CHOICE;
 	Menu_Array[ TEST_LIGHTS ].context 	   = TEST_LIGHTS_ALL_ON;
-	Menu_Array[ TEST_LIGHTS ].item_count   = 3; // TODO: finish the random fade light effect
+	Menu_Array[ TEST_LIGHTS ].item_count   = 7; // TODO: finish the random fade light effect
 	Menu_Array[ TEST_LIGHTS ].current_item = 1;
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].caption, "TEST LIGHTS" );
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ 0 ], SPACES );
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_ALL_ON   	],	"\1 All Lights On \2"  	);
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_RED		],	"\1 Red On \2"			);
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_AMBER1		],	"\1 Amber 1 On \2"		);
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_AMBER2		],	"\1 Amber 2 On \2"		);
+	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_GREEN		],	"\1 Green On \2"		);
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_UP_DOWN  	],	"\1 Up/Down Pattern \2" );
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_DARK_LIGHT ],	"\1 All Lights Fade \2" );
 	SetMenuText( Menu_Array[ TEST_LIGHTS ].item[ TEST_LIGHTS_RANDOM		],	"\1 Random Fade \2"		);
@@ -5980,7 +6134,7 @@ void InitMenus( void )
 	Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_DISABLED;
 	Menu_Array[ ANTI_SLAM ].sub_context_2 = 2500; // ANTI_SLAM_START_DELAY
 	Menu_Array[ ANTI_SLAM ].sub_context_3 = 2500; // ANTI_SLAM_PULSE_WIDTH
-	Menu_Array[ ANTI_SLAM ].sub_context_4 = 10;	  // ANTI_SLAM_INCREMENT
+	Menu_Array[ ANTI_SLAM ].sub_context_4 = 2;	  // ANTI_SLAM_INCREMENT - corresponds to case statement to set global variable = 1, 10, 100, 1000
 	Menu_Array[ ANTI_SLAM ].current_item  = 0;
 	Menu_Array[ ANTI_SLAM ].item_count    = 7;
 	SetMenuText( Menu_Array[ ANTI_SLAM ].caption, "ANTI-SLAM FEATURE" );
