@@ -187,8 +187,8 @@ void PrintElapsedTime( const unsigned int milliseconds, const unsigned int fract
 void ClearTimingHistories( void );
 
 // flash support
-void SaveEverythingToFlashMemory	( void );
-void ReadEverythingFromFlashMemory	( void );
+void SaveEverythingToFlashMemory	( int write_UUID_mask );
+int  ReadEverythingFromFlashMemory	( void );
 
 // get the flash sector number to use with FLASH_EraseSector
 uint32_t GetFlashSector( uint32_t Address );
@@ -197,6 +197,7 @@ uint32_t GetFlashSector( uint32_t Address );
 int LightTestCycle( const unsigned int allow_abort );
 void ReadLightExitControlInput( int light_context );
 
+void ValidateUUIDMask( void );
 
 enum INPUTS { 	BUTTON_A 		= 0x0001,
 				BUTTON_B 		= 0x0010,
@@ -320,6 +321,9 @@ struct TIMING_DEFINITION
 #define ADDR_FLASH_SECTOR_9   0x080A0000 // starting address of sector 9,  128 K
 #define ADDR_FLASH_SECTOR_10  0x080C0000 // starting address of sector 10, 128 K
 #define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
+#define ADDR_UUID ((uint32_t *)0x1FFF7A10)
+
+#define UUID_VALIDATE_CHECKS  5
 
 // define actual hardware memory addresses to read/write from flash (sector 1)
 #define FLASH_SAVE_MEMORY_START 0x08004000
@@ -416,6 +420,8 @@ static unsigned int Reaction_Game_P2_WORST = 0;
 // debug for light test
 static unsigned short Light_Code = 0x8888;
 
+static unsigned int UUID_Mask  = 0;
+static unsigned int UUID_Check = 0;
 
 #ifdef BATTERY_LOG
 // temp code to capture battery decay profile
@@ -423,7 +429,6 @@ static unsigned int Battery_Levels[ 100 ];
 #endif
 
 
-#define STM32_UUID ((uint32_t *)0x1FFF7A10)
 
 int main( void )
 {
@@ -431,10 +436,6 @@ int main( void )
 	int i = 0;
 	for(; i < 100; i++ ) Battery_Levels[ i ] = 0;
 #endif
-
-    uint32_t idPart1 = STM32_UUID[0];
-    uint32_t idPart2 = STM32_UUID[1];
-    uint32_t idPart3 = STM32_UUID[2];
 
 	SystemInit();  // line 221 of system_stm32f4xx.c
 
@@ -453,7 +454,10 @@ int main( void )
 
 	InitAudio();
 
-	ReadEverythingFromFlashMemory();
+	// do initial save of settings if this is the first time the code has ran
+	if( ReadEverythingFromFlashMemory() == -1 ) SaveEverythingToFlashMemory( 1 );
+
+	ValidateUUIDMask();
 
 	BatteryLevel( 1 );
 
@@ -954,9 +958,11 @@ int main( void )
 							DropGate( 0 );
 
 							// the only reason to call this is to save the total gate drops
-							SaveEverythingToFlashMemory();
+							SaveEverythingToFlashMemory( 0 );
 							ReadInputs( &inputs, 0 );
 							inputs = 0;
+
+							ValidateUUIDMask();
 
 							// display timing infos if either AUX port is set to measure time
 							if( Menu_Array[ AUX_1_CONFIG ].context == AUX_TIME ||
@@ -1109,7 +1115,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ GATE_DROPS_ON ].item[ 0 ], 1 );
 								UpdateLCD();
 
-								SaveEverythingToFlashMemory();
+								SaveEverythingToFlashMemory( 0 );
 								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
@@ -1230,7 +1236,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 								UpdateLCD();
 
-								SaveEverythingToFlashMemory();
+								SaveEverythingToFlashMemory( 0 );
 								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
@@ -1341,7 +1347,7 @@ int main( void )
 										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
 										UpdateLCD();
 
-										SaveEverythingToFlashMemory();
+										SaveEverythingToFlashMemory( 0 );
 										ReadInputs( &inputs, 0 );
 										inputs = 0;
 
@@ -1384,7 +1390,7 @@ int main( void )
 										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
 										UpdateLCD();
 
-										SaveEverythingToFlashMemory();
+										SaveEverythingToFlashMemory( 0 );
 										ReadInputs( &inputs, 0 );
 										inputs = 0;
 
@@ -1476,7 +1482,7 @@ int main( void )
 										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
 										UpdateLCD();
 
-										SaveEverythingToFlashMemory();
+										SaveEverythingToFlashMemory( 0 );
 										ReadInputs( &inputs, 0 );
 										inputs = 0;
 
@@ -1489,7 +1495,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 								UpdateLCD();
 
-								SaveEverythingToFlashMemory();
+								SaveEverythingToFlashMemory( 0 );
 								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
@@ -1740,7 +1746,7 @@ int main( void )
 											UpdateLCD();
 
 											ClearTimingHistories();
-											SaveEverythingToFlashMemory();
+											SaveEverythingToFlashMemory( 0 );
 											ReadInputs( &inputs, 0 );
 											inputs = 0;
 
@@ -1791,7 +1797,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ], 1 );
 								UpdateLCD();
 
-								SaveEverythingToFlashMemory();
+								SaveEverythingToFlashMemory( 0 );
 								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
@@ -1853,7 +1859,7 @@ int main( void )
 
 											Menu_Array[ TOTAL_GATE_DROPS ].context = 0;
 
-											SaveEverythingToFlashMemory();
+											SaveEverythingToFlashMemory( 0 );
 											ReadInputs( &inputs, 0 );
 											inputs = 0;
 
@@ -1921,7 +1927,7 @@ int main( void )
 							PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
 							InitAudio();
 #endif
-							SaveEverythingToFlashMemory();
+							SaveEverythingToFlashMemory( 0 );
 							ReadInputs( &inputs, 0 );
 							inputs = 0;
 
@@ -1968,7 +1974,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 								UpdateLCD();
 
-								SaveEverythingToFlashMemory();
+								SaveEverythingToFlashMemory( 0 );
 								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
@@ -2394,7 +2400,7 @@ int main( void )
 												Reaction_Game_P2_AVG   = 0;
 												Reaction_Game_P2_WORST = 0;
 
-// TODO: comment this back in for SMT version	SaveEverythingToFlashMemory();
+// TODO: comment this back in for SMT version	SaveEverythingToFlashMemory( 0 );
 												ReadInputs( &inputs, 0 );
 												inputs = 0;
 
@@ -2447,7 +2453,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ WIRELESS_REMOTE ].item[ 0 ], 1 );
 								UpdateLCD();
 
-								SaveEverythingToFlashMemory();
+								SaveEverythingToFlashMemory( 0 );
 								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
@@ -2498,7 +2504,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ RELEASE_DEVICE ].item[ 0 ], 1 );
 								UpdateLCD();
 
-								SaveEverythingToFlashMemory();
+								SaveEverythingToFlashMemory( 0 );
 								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
@@ -2638,7 +2644,7 @@ int main( void )
 										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
 										UpdateLCD();
 
-										SaveEverythingToFlashMemory();
+										SaveEverythingToFlashMemory( 0 );
 										ReadInputs( &inputs, 0 );
 										inputs = 0;
 
@@ -2690,7 +2696,7 @@ int main( void )
 										WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].caption, 0 );
 										UpdateLCD();
 
-										SaveEverythingToFlashMemory();
+										SaveEverythingToFlashMemory( 0 );
 										ReadInputs( &inputs, 0 );
 										inputs = 0;
 
@@ -2705,7 +2711,7 @@ int main( void )
 								WriteLCD_LineCentered( Menu_Array[ ANTI_SLAM ].item[ 0 ], 1 );
 								UpdateLCD();
 
-								SaveEverythingToFlashMemory();
+								SaveEverythingToFlashMemory( 0 );
 								ReadInputs( &inputs, 0 );
 								inputs = 0;
 
@@ -3000,7 +3006,7 @@ int main( void )
 				// only save if timing wasn't cancelled
 				if( Cancel_Timing != 1 )
 				{
-					SaveEverythingToFlashMemory();
+					SaveEverythingToFlashMemory( 0 );
 					ReadInputs( &inputs, 0 );
 					inputs = 0;
 				}
@@ -3432,7 +3438,7 @@ void DoReactionGame( const unsigned int player_count )
 	    GetTimeFromTicks( Reaction_Game_P1_WORST, &minutes_worst, &seconds_worst, &tens_place_worst, &hund_place_worst, &thou_place_worst );
 
 // TODO: Comment this back in once the SMT version is complete
-//		SaveEverythingToFlashMemory();
+//		SaveEverythingToFlashMemory( 0 );
 
 		char line0[ DISPLAY_WIDTH ];
 
@@ -3687,6 +3693,24 @@ void ReadLightExitControlInput( int light_context )
 			UpdateLCD();
 			while(1);
 		}
+	}
+}
+
+void ValidateUUIDMask( void )
+{
+	if( UUID_Mask != (uint32_t)(ADDR_UUID[0] ^ ADDR_UUID[1] ^ ADDR_UUID[2]) )
+	{
+		if( UUID_Check == 0 )
+		{
+			WriteLCD_LineCentered( "Counterfeit box!", 0 );
+			WriteLCD_LineCentered( "You SUCK!", 1 );
+			UpdateLCD();
+
+			while(1);
+		}
+
+		UUID_Check--;
+		SaveEverythingToFlashMemory( 0 );
 	}
 }
 
@@ -6200,7 +6224,7 @@ void ClearTimingHistories( void )
 	}
 }
 
-void SaveEverythingToFlashMemory( void )
+void SaveEverythingToFlashMemory( int write_UUID_mask )
 {
 	FLASH_Unlock();
 
@@ -6228,6 +6252,19 @@ void SaveEverythingToFlashMemory( void )
 	uint32_t write_address	  = FLASH_SAVE_MEMORY_START;
 	FLASH_Status flash_status = FLASH_ProgramWord( write_address, 0xDEADBEEF );
 	write_address += 4;
+
+	// save UUID mask
+	if( write_UUID_mask == 1 )
+	{
+		UUID_Mask = (ADDR_UUID[0] ^ ADDR_UUID[1] ^ ADDR_UUID[2]);
+	    FLASH_ProgramWord( write_address, UUID_Mask );
+
+	    UUID_Check = UUID_VALIDATE_CHECKS;
+	}
+
+	write_address += 4;
+
+	FLASH_ProgramWord( write_address, UUID_Check ); write_address += 4;
 
 	// first save out the entire timer histories array
 	uint32_t *p_data = (uint32_t *) Timer_History;
@@ -6335,13 +6372,15 @@ void SaveEverythingToFlashMemory( void )
 	FLASH_Lock();
 }
 
-void ReadEverythingFromFlashMemory( void )
+int ReadEverythingFromFlashMemory( void )
 {
 	volatile uint32_t read_address = (volatile uint32_t)FLASH_SAVE_MEMORY_START;
 
-	if( *(volatile uint32_t *)read_address != 0xDEADBEEF ) return;
+	if( *(volatile uint32_t *)read_address != 0xDEADBEEF ) return -1;
 
 	read_address += 4;
+	UUID_Mask  = *(volatile uint32_t*)read_address; read_address += 4;
+	UUID_Check = *(volatile uint32_t*)read_address; read_address += 4;
 
 	volatile uint32_t *p_data = (volatile uint32_t *) & Timer_History;
 
@@ -6429,6 +6468,8 @@ void ReadEverythingFromFlashMemory( void )
 	Menu_Array[ ANTI_SLAM ].sub_context_4	= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ ANTI_SLAM ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	return 0;
 }
 
 uint32_t GetFlashSector( uint32_t Address )
