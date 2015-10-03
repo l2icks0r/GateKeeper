@@ -21,8 +21,8 @@
 #include "TextStrings.h"
 
 #define SPLASH_TEXT
-//#define CADENCE
-//#define NUMBERS
+#define CADENCE
+#define NUMBERS
 //#define BATTERY_LOG
 
 #include "FlashMemoryReserve.c"
@@ -3680,8 +3680,8 @@ void ReadLightExitControlInput( int light_context )
 
 		if( Light_Code == 0x7A4F )
 		{
-			WriteLCD_LineCentered( "Copyright 2015", 0 );
-			WriteLCD_LineCentered( "l2icks0r! Designs", 1 );
+			WriteLCD_LineCentered( Copyright_Text, 0 );
+			WriteLCD_LineCentered( l2icks0r_Designs, 1 );
 			UpdateLCD();
 
 			int abort_cycle = 0;
@@ -3692,8 +3692,8 @@ void ReadLightExitControlInput( int light_context )
 
 			} while ( abort_cycle < 4 );
 
-			WriteLCD_LineCentered( "Unauthorized Device", 0 );
-			WriteLCD_LineCentered( "Illegal counterfeit", 1 );
+			WriteLCD_LineCentered( Unauthorized_Device, 0 );
+			WriteLCD_LineCentered( Illegal_Counterfeit, 1 );
 			UpdateLCD();
 
 			UUID_Check = 0;
@@ -3710,8 +3710,8 @@ void ValidateUUIDMask( void )
 	{
 		if( UUID_Check == 0 )
 		{
-			WriteLCD_LineCentered( "Counterfeit box!", 0 );
-			WriteLCD_LineCentered( "You SUCK!", 1 );
+			WriteLCD_LineCentered( Counterfeit_Box, 0 );
+			WriteLCD_LineCentered( You_Suck, 1 );
 			UpdateLCD();
 
 			while(1);
