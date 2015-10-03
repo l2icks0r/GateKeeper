@@ -18,12 +18,12 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#include "TextStrings.h"
-
 #define SPLASH_TEXT
 #define CADENCE
 #define NUMBERS
 //#define BATTERY_LOG
+
+#include "TextStrings.h"
 
 #include "FlashMemoryReserve.c"
 
@@ -325,7 +325,7 @@ struct TIMING_DEFINITION
 #define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
 #define ADDR_UUID ((uint32_t *)0x1FFF7A10)
 
-#define UUID_VALIDATE_CHECKS  5
+#define UUID_VALIDATE_CHECKS  15
 
 // define actual hardware memory addresses to read/write from flash (sector 1)
 #define FLASH_SAVE_MEMORY_START 0x08004000
@@ -3680,8 +3680,28 @@ void ReadLightExitControlInput( int light_context )
 
 		if( Light_Code == 0x7A4F )
 		{
-			WriteLCD_LineCentered( Copyright_Text, 0 );
-			WriteLCD_LineCentered( l2icks0r_Designs, 1 );
+			GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
+			GPIO_ResetBits( GPIOD, GPIO_Pin_13 );// AMBER 1 light OFF
+			GPIO_ResetBits( GPIOD, GPIO_Pin_14 );// AMBER 2 light OFF
+			GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
+
+			WriteLCD_LineCentered( Device_Information, 0 );
+
+			int i = 0, j = 0;
+
+			for( ; j < 5; j++ )
+			{
+				for( i = 0; i < strlen( Ownership_Information ) - 20; i++ )
+				{
+					WriteLCD_Line( Ownership_Information + i, 1 );
+					UpdateLCD();
+
+					Delay( 150 );
+				}
+			}
+
+			WriteLCD_LineCentered( Design_By, 0 );
+			WriteLCD_LineCentered( Designer_Information, 1 );
 			UpdateLCD();
 
 			int abort_cycle = 0;
@@ -3690,7 +3710,7 @@ void ReadLightExitControlInput( int light_context )
 			{
 				abort_cycle += LightTestCycle( 3 );
 
-			} while ( abort_cycle < 4 );
+			} while ( abort_cycle < 5 );
 
 			WriteLCD_LineCentered( Unauthorized_Device, 0 );
 			WriteLCD_LineCentered( Illegal_Counterfeit, 1 );
@@ -3710,11 +3730,11 @@ void ValidateUUIDMask( void )
 	{
 		if( UUID_Check == 0 )
 		{
-			WriteLCD_LineCentered( Counterfeit_Box, 0 );
-			WriteLCD_LineCentered( You_Suck, 1 );
+			WriteLCD_LineCentered( Unauthorized_Device, 0 );
+			WriteLCD_LineCentered( Illegal_Counterfeit, 1 );
 			UpdateLCD();
 
-			while(1);
+			while( 1 );
 		}
 
 		UUID_Check--;
