@@ -7,6 +7,7 @@
         <Option name="OptimizationLevel" value="0"/>
         <Option name="UseFPU" value="0"/>
         <Option name="UserEditCompiler" value=""/>
+        <Option name="FPU" value="0"/>
         <Includepaths>
           <Includepath path="."/>
         </Includepaths>
@@ -20,17 +21,19 @@
       <Link useDefault="0">
         <Option name="DiscardUnusedSection" value="0"/>
         <Option name="UserEditLinkder" value=""/>
-        <Option name="UseMemoryLayout" value="1"/>
+        <Option name="UseMemoryLayout" value="0"/>
         <Option name="LTO" value="0"/>
         <Option name="IsNewStartupCode" value="1"/>
+        <Option name="Library" value="Not use C Library"/>
+        <Option name="UserEditLinker" value="-lm"/>
         <LinkedLibraries/>
         <MemoryAreas debugInFlashNotRAM="1">
-          <Memory name="IROM1" type="ReadOnly" size="0x00100000" startValue="0x08000000"/>
+          <Memory name="IROM1" type="ReadOnly" size="0x0100000" startValue="0x08000000"/>
           <Memory name="IRAM1" type="ReadWrite" size="0x00020000" startValue="0x20000000"/>
           <Memory name="IROM2" type="ReadOnly" size="" startValue=""/>
           <Memory name="IRAM2" type="ReadWrite" size="0x00010000" startValue="0x10000000"/>
         </MemoryAreas>
-        <LocateLinkFile path="c:/coocox/coide/configuration/programdata/gatekeeper/link.ld" type="0"/>
+        <LocateLinkFile path="./link.ld" type="0"/>
       </Link>
       <Output>
         <Option name="OutputFileType" value="0"/>
@@ -75,6 +78,7 @@
     <Component id="505" name="EXTI" path="" type="2"/>
     <Component id="509" name="SPI" path="" type="2"/>
     <Component id="510" name="I2C" path="" type="2"/>
+    <Component id="512" name="FLASH" path="" type="2"/>
     <Component id="513" name="TIM" path="" type="2"/>
     <Component id="514" name="ADC" path="" type="2"/>
     <Component id="518" name="RNG" path="" type="2"/>
@@ -83,28 +87,31 @@
   </Components>
   <Files>
     <File name="cmsis_lib/source/stm32f4xx_gpio.c" path="cmsis_lib/source/stm32f4xx_gpio.c" type="1"/>
+    <File name="cmsis_lib/include/stm32f4xx_flash.h" path="cmsis_lib/include/stm32f4xx_flash.h" type="1"/>
     <File name="cmsis_lib/include/stm32f4xx_i2c.h" path="cmsis_lib/include/stm32f4xx_i2c.h" type="1"/>
     <File name="one.c" path="one.c" type="1"/>
     <File name="six.c" path="six.c" type="1"/>
     <File name="cmsis_boot" path="" type="2"/>
     <File name="cmsis_lib/include/stm32f4xx_syscfg.h" path="cmsis_lib/include/stm32f4xx_syscfg.h" type="1"/>
     <File name="fifty.c" path="fifty.c" type="1"/>
-    <File name="point.c" path="point.c" type="1"/>
     <File name="thirty.c" path="thirty.c" type="1"/>
+    <File name="point.c" path="point.c" type="1"/>
     <File name="Square632Hz48k.c" path="Square632Hz48k.c" type="1"/>
-    <File name="cmsis_boot/startup" path="" type="2"/>
+    <File name="cmsis_lib/source/stm32f4xx_flash.c" path="cmsis_lib/source/stm32f4xx_flash.c" type="1"/>
     <File name="cmsis/core_cm4_simd.h" path="cmsis/core_cm4_simd.h" type="1"/>
     <File name="cmsis_boot/stm32f4xx.h" path="cmsis_boot/stm32f4xx.h" type="1"/>
+    <File name="cmsis_boot/startup" path="" type="2"/>
     <File name="cmsis_lib/source/stm32f4xx_spi.c" path="cmsis_lib/source/stm32f4xx_spi.c" type="1"/>
     <File name="two.c" path="two.c" type="1"/>
     <File name="cmsis/core_cmFunc.h" path="cmsis/core_cmFunc.h" type="1"/>
     <File name="four.c" path="four.c" type="1"/>
     <File name="seventy.c" path="seventy.c" type="1"/>
     <File name="cmsis/core_cm4.h" path="cmsis/core_cm4.h" type="1"/>
+    <File name="TextStrings.c" path="TextStrings.c" type="1"/>
     <File name="zero.c" path="zero.c" type="1"/>
     <File name="nine.c" path="nine.c" type="1"/>
-    <File name="ninety.c" path="ninety.c" type="1"/>
     <File name="Square680Hz48k.c" path="Square680Hz48k.c" type="1"/>
+    <File name="ninety.c" path="ninety.c" type="1"/>
     <File name="At.c" path="At.c" type="1"/>
     <File name="RandomStart24k.c" path="RandomStart24k.c" type="1"/>
     <File name="cmsis_lib/source/misc.c" path="cmsis_lib/source/misc.c" type="1"/>
@@ -124,12 +131,12 @@
     <File name="WatchTheGate24k.c" path="WatchTheGate24k.c" type="1"/>
     <File name="cmsis_lib/include/stm32f4xx_rcc.h" path="cmsis_lib/include/stm32f4xx_rcc.h" type="1"/>
     <File name="minute.c" path="minute.c" type="1"/>
-    <File name="Square740Hz48k.c" path="Square740Hz48k.c" type="1"/>
     <File name="cmsis_lib/source/stm32f4xx_syscfg.c" path="cmsis_lib/source/stm32f4xx_syscfg.c" type="1"/>
+    <File name="Square740Hz48k.c" path="Square740Hz48k.c" type="1"/>
     <File name="second.c" path="second.c" type="1"/>
     <File name="StartupSound.c" path="StartupSound.c" type="1"/>
-    <File name="stdio" path="" type="2"/>
     <File name="cmsis_boot/startup/startup_stm32f4xx.c" path="cmsis_boot/startup/startup_stm32f4xx.c" type="1"/>
+    <File name="stdio" path="" type="2"/>
     <File name="seven.c" path="seven.c" type="1"/>
     <File name="cmsis_lib/source/stm32f4xx_rcc.c" path="cmsis_lib/source/stm32f4xx_rcc.c" type="1"/>
     <File name="three.c" path="three.c" type="1"/>
@@ -139,6 +146,7 @@
     <File name="MilesPerHour.c" path="MilesPerHour.c" type="1"/>
     <File name="LastTimeWas.c" path="LastTimeWas.c" type="1"/>
     <File name="teen.c" path="teen.c" type="1"/>
+    <File name="FlashMemoryReserve.c" path="FlashMemoryReserve.c" type="1"/>
     <File name="seconds.c" path="seconds.c" type="1"/>
     <File name="eleven.c" path="eleven.c" type="1"/>
     <File name="minutes.c" path="minutes.c" type="1"/>
@@ -152,10 +160,11 @@
     <File name="twelve.c" path="twelve.c" type="1"/>
     <File name="five.c" path="five.c" type="1"/>
     <File name="codec.h" path="codec.h" type="1"/>
-    <File name="cmsis" path="" type="2"/>
+    <File name="TextStrings.h" path="TextStrings.h" type="1"/>
     <File name="BatteryAt.c" path="BatteryAt.c" type="1"/>
-    <File name="hundred.c" path="hundred.c" type="1"/>
+    <File name="cmsis" path="" type="2"/>
     <File name="cmsis_lib" path="" type="2"/>
+    <File name="hundred.c" path="hundred.c" type="1"/>
     <File name="cmsis_lib/source/stm32f4xx_tim.c" path="cmsis_lib/source/stm32f4xx_tim.c" type="1"/>
     <File name="cmsis_lib/include/stm32f4xx_gpio.h" path="cmsis_lib/include/stm32f4xx_gpio.h" type="1"/>
     <File name="sixty.c" path="sixty.c" type="1"/>
@@ -164,8 +173,8 @@
     <File name="cmsis_lib/include/misc.h" path="cmsis_lib/include/misc.h" type="1"/>
     <File name="eight.c" path="eight.c" type="1"/>
     <File name="cmsis_lib/include/stm32f4xx_rng.h" path="cmsis_lib/include/stm32f4xx_rng.h" type="1"/>
-    <File name="codec.c" path="codec.c" type="1"/>
     <File name="cmsis_lib/include" path="" type="2"/>
+    <File name="codec.c" path="codec.c" type="1"/>
     <File name="thir.c" path="thir.c" type="1"/>
     <File name="main.c" path="main.c" type="1"/>
     <File name="fif.c" path="fif.c" type="1"/>
