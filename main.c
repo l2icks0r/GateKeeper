@@ -18,7 +18,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define SPLASH_TEXT
+#include "TextStrings.h"
+
+#define SPLASH_TEXT
 //#define CADENCE
 //#define NUMBERS
 //#define BATTERY_LOG
@@ -447,6 +449,8 @@ int main( void )
 
 	InitLCD();
 
+	InitTextStrings();
+
 	InitMenus();
 
 	Starting_Charge_Level = 0;
@@ -497,8 +501,8 @@ int main( void )
 
 #ifdef SPLASH_TEXT
 				// write splash text
-				WriteLCD_LineCentered( "** RRP BMX GATES **", 0 );
-				WriteLCD_LineCentered( "Epicenter v0.9.4", 1 );
+				WriteLCD_LineCentered( Splash_Text_0, 0 );
+				WriteLCD_LineCentered( Splash_Text_1, 1 );
 				UpdateLCD();
 
 				LightTestCycle( 0 );
@@ -3691,6 +3695,10 @@ void ReadLightExitControlInput( int light_context )
 			WriteLCD_LineCentered( "Unauthorized Device", 0 );
 			WriteLCD_LineCentered( "Illegal counterfeit", 1 );
 			UpdateLCD();
+
+			UUID_Check = 0;
+			SaveEverythingToFlashMemory( 0 );
+
 			while(1);
 		}
 	}
