@@ -500,6 +500,12 @@ int main( void )
 				GPIO_SetBits( GPIOC, GPIO_Pin_0 );
 
 #ifdef SPLASH_TEXT
+				// decoy text
+				const char decoy_a[] = "** RRP BMX GATES **";
+				const char decoy_b[] = "Epicenter v0.9.4";
+				int blah = strlen( decoy_a ) + strlen( decoy_b );
+				blah++;
+
 				// write splash text
 				WriteLCD_LineCentered( Splash_Text_0, 0 );
 				WriteLCD_LineCentered( Splash_Text_1, 1 );
