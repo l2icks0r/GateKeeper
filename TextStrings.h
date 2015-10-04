@@ -33,6 +33,14 @@ char Unauthorized_Device[ 21 ];
 static const short illegal_counterfeit[ 22 ] = { -128, 128, 73, 23590, -32649, 21655, 2634, -25451, 32633, -19760, -5131, 26945, -32003, 17631, 7730, -28353, 31613, -15240, -10358, 29443, -30635, 0 };
 char Illegal_Counterfeit[ 21 ];
 
+// "This device is not"
+static const short this_device_is_not[ 21 ] = { -255, 512, -18743, 20758, -22910, 24687, -26279, 27695, -28987, 30152, -31027, 31829, -32289, 32681, -32661, 32720, -32346, 31981, -31151, 30280, 0 };
+char This_Device_Is_Not[ 21 ];
+
+// "authorized for use."
+static const short authorized_for_use[ 22 ] = { -1234, 5432, 24261, -27780, 30704, -32135, 32657, -32237, 30351, -27755, 23835, -19402, 14176, -8335, 2305, 3602, -9615, 15301, -20436, 24757, -28299, 0 };
+char Authorized_For_Use[ 21 ];
+
 
 void InitTextStrings( void );
 void DecryptString( char *pDeCoded, const short *pCoded );
