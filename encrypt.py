@@ -10,10 +10,6 @@ def main():
     angle = int(sys.argv[ 2 ])
     theta = int(sys.argv[ 3 ])
 
-    if len(sys.argv[1]) > 20:
-        print 'string is > 20 characters'
-        exit(0)
-
     print '// "' + sys.argv[ 1 ] + '"'
 
     for letter in sys.argv[ 1 ]:
