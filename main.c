@@ -501,9 +501,9 @@ int main( void )
 
 #ifdef SPLASH_TEXT
 				// decoy text
-				const char decoy_a[] = "** RRP BMX GATES **";
-				const char decoy_b[] = "Epicenter v0.9.4";
-				int blah = strlen( decoy_a ) + strlen( decoy_b );
+				const char splash_0[] = "** RRP BMX GATES **";
+				const char splash_1[] = "Epicenter v0.9.4";
+				int blah = strlen( splash_0 ) + strlen( splash_1 );
 				blah++;
 
 				// write splash text
