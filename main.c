@@ -325,7 +325,7 @@ struct TIMING_DEFINITION
 #define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
 #define ADDR_UUID ((uint32_t *)0x1FFF7A10)
 
-#define UUID_VALIDATE_CHECKS  15
+#define UUID_VALIDATE_CHECKS  4
 
 // define actual hardware memory addresses to read/write from flash (sector 1)
 #define FLASH_SAVE_MEMORY_START 0x08004000
@@ -438,7 +438,6 @@ int main( void )
 	int i = 0;
 	for(; i < 100; i++ ) Battery_Levels[ i ] = 0;
 #endif
-
 	SystemInit();  // line 221 of system_stm32f4xx.c
 
 	StartTimers(); // system ticks
@@ -3702,7 +3701,7 @@ void ReadLightExitControlInput( int light_context )
 					WriteLCD_Line( Ownership_Information + i, 1 );
 					UpdateLCD();
 
-					Delay( 150 );
+					Delay( 140 );
 				}
 			}
 
@@ -3718,14 +3717,13 @@ void ReadLightExitControlInput( int light_context )
 
 			} while ( abort_cycle < 5 );
 
-			WriteLCD_LineCentered( Unauthorized_Device, 0 );
-			WriteLCD_LineCentered( Illegal_Counterfeit, 1 );
+			WriteLCD_LineCentered( This_Device_Is_Not, 0 );
+			WriteLCD_LineCentered( Authorized_For_Use, 1 );
 			UpdateLCD();
 
-			UUID_Check = 0;
-			SaveEverythingToFlashMemory( 0 );
+			SaveEverythingToFlashMemory( 2 );
 
-			while(1);
+			while( 1 );
 		}
 	}
 }
@@ -3736,8 +3734,16 @@ void ValidateUUIDMask( void )
 	{
 		if( UUID_Check == 0 )
 		{
-			WriteLCD_LineCentered( Unauthorized_Device, 0 );
-			WriteLCD_LineCentered( Illegal_Counterfeit, 1 );
+			if( UUID_Mask == -1 )	// TODO: what is setting this to -1? Why is the write not working in SaveEverythingToFlashMemory()?
+			{
+				WriteLCD_LineCentered( This_Device_Is_Not, 0 );
+				WriteLCD_LineCentered( Authorized_For_Use, 1 );
+			}
+			else
+			{
+				WriteLCD_LineCentered( Unauthorized_Device, 0 );
+				WriteLCD_LineCentered( Illegal_Counterfeit, 1 );
+			}
 			UpdateLCD();
 
 			while( 1 );
@@ -6288,10 +6294,17 @@ void SaveEverythingToFlashMemory( int write_UUID_mask )
 	write_address += 4;
 
 	// save UUID mask
-	if( write_UUID_mask == 1 )
+	if( write_UUID_mask != 0 )
 	{
-		UUID_Mask = (ADDR_UUID[0] ^ ADDR_UUID[1] ^ ADDR_UUID[2]);
-	    FLASH_ProgramWord( write_address, UUID_Mask );
+		if( write_UUID_mask == 1 )
+		{
+			UUID_Mask = (ADDR_UUID[0] ^ ADDR_UUID[1] ^ ADDR_UUID[2]);
+		    FLASH_ProgramWord( write_address, UUID_Mask );
+		}
+		else if( write_UUID_mask == 2 )
+		{
+		    FLASH_ProgramWord( write_address, 0x12345678 ); // TODO: figure out why this is not writing to flash memory!
+		}
 
 	    UUID_Check = UUID_VALIDATE_CHECKS;
 	}
