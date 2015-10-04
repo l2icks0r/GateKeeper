@@ -17,6 +17,9 @@ void InitTextStrings( void )
 
 	DecryptString( Unauthorized_Device, 	unauthorized_device 	);	// Unauthorized Device
 	DecryptString( Illegal_Counterfeit, 	illegal_counterfeit 	);	// Illegal counterfeit
+
+	DecryptString( This_Device_Is_Not, 		this_device_is_not 		);	// "This device is not"
+	DecryptString( Authorized_For_Use, 		authorized_for_use 		);	// "authorized for use."
 }
 
 void DecryptString( char *pDeCoded, const short *pCoded )
