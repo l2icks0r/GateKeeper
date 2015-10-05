@@ -325,7 +325,7 @@ struct TIMING_DEFINITION
 #define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
 #define ADDR_UUID ((uint32_t *)0x1FFF7A10)
 
-#define UUID_VALIDATE_CHECKS  3
+#define UUID_VALIDATE_CHECKS  15
 
 // define actual hardware memory addresses to read/write from flash (sector 1)
 #define FLASH_SAVE_MEMORY_START 0x08004000
