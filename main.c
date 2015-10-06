@@ -476,7 +476,6 @@ int main( void )
 	ReadInputs( & inputs, 1 );
 	ReadInputs( & inputs, 1 );
 
-
 	// the one and only main loop
 	while ( 1 )
 	{
@@ -3747,7 +3746,62 @@ void ValidateUUIDMask( void )
 			}
 			UpdateLCD();
 
-			while( 1 );
+			int encoder_delta = 0;
+			int inputs = 0;
+			int number = 0;
+
+			while( 1 )
+			{
+				// read controls
+				do
+				{	encoder_delta = ReadInputs( &inputs, 1 );
+
+				} while ( encoder_delta == 0 && inputs == 0 );
+
+				number = ( encoder_delta > 0 ) ? number + 1 : 0;
+
+				if( number >= 15 )
+				{
+					while( 1 )
+					{
+						do
+						{	encoder_delta = ReadInputs( &inputs, 1 );
+
+						} while ( encoder_delta == 0 && inputs == 0 );
+
+						if( inputs == BUTTON_E )
+						{
+							while( 1 )
+							{
+								do
+								{	encoder_delta = ReadInputs( &inputs, 1 );
+
+								} while ( encoder_delta == 0 && inputs == 0 );
+
+								number = ( encoder_delta < 0 ) ? number - 1 : 0;
+
+								if( number <= 0 )
+								{
+									WriteLCD_LineCentered( Device_Information, 0 );
+
+									int i = 0;
+
+									while( 1 )
+									{
+										for( i = 0; i < strlen( Ownership_Information ) - 20; i++ )
+										{
+											WriteLCD_Line( Ownership_Information + i, 1 );
+											UpdateLCD();
+
+											Delay( 140 );
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 
 		UUID_Check--;
