@@ -18,9 +18,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define SPLASH_TEXT
-#define CADENCE
-#define NUMBERS
+//#define SPLASH_TEXT
+//#define CADENCE
+//#define NUMBERS
 //#define BATTERY_LOG
 
 #include "TextStrings.h"
@@ -234,6 +234,7 @@ enum MENUS	   { DROP_GATE = 0,
 
 				 TOTAL_GATE_DROPS,
 				 ZERO_TOTAL_GATE_DROPS,
+				 SAVE_TOTAL_GATE_DROPS,
 
 				 CADENCE_VOLUME,
 				 AUDIO_IN_VOLUME,
@@ -769,7 +770,7 @@ int main( void )
 						// skip ZERO_TOTAL_GATE_DROPS if gate drop count is zero
 						else if( Menu_Index == ZERO_TOTAL_GATE_DROPS && Menu_Array[ TOTAL_GATE_DROPS ].context == 0 )
 						{
-							if( encoder_delta > 0 ) Menu_Index = CADENCE_VOLUME;
+							if( encoder_delta > 0 ) Menu_Index = SAVE_TOTAL_GATE_DROPS;
 							else					Menu_Index = TOTAL_GATE_DROPS;
 						}
 						else if( Menu_Index == RELEASE_DEVICE && Gate_Power_State == POWER_ON )
@@ -966,8 +967,9 @@ int main( void )
 							PlayDropGateAnimation();
 							DropGate( 0 );
 
-							// the only reason to call this is to save the total gate drops
-							SaveEverythingToFlashMemory( 0 );
+// Todo: address saving the number of gate drops in next hardware revision, for now save memory handles this
+// the only reason to call this is to save the total gate drops
+//							SaveEverythingToFlashMemory( 0 );
 							ReadInputs( &inputs, 0 );
 							inputs = 0;
 
@@ -1868,7 +1870,6 @@ int main( void )
 
 											Menu_Array[ TOTAL_GATE_DROPS ].context = 0;
 
-											SaveEverythingToFlashMemory( 0 );
 											ReadInputs( &inputs, 0 );
 											inputs = 0;
 
@@ -1884,6 +1885,62 @@ int main( void )
 									}
 									continue;
 								}
+							}
+							break;
+						}
+
+						case SAVE_TOTAL_GATE_DROPS:
+						{
+							WriteLCD_LineCentered( "Are you sure?", 0 );
+							WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
+							UpdateLCD();
+
+							Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context = 0;
+
+							while( 1 )
+							{
+								// wait for input
+								do
+								{	encoder_delta = ReadInputs( &inputs, 0 );
+
+								} while ( encoder_delta == 0 && inputs == 0 );
+
+								if( encoder_delta == -1 )
+								{
+									Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context = 1;
+									WriteLCD_LineCentered( "\1 YES \2/ no", 1 );
+									UpdateLCD();
+								}
+								else if( encoder_delta == 1 )
+								{
+									Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context = 0;
+									WriteLCD_LineCentered( "yes /\1 NO \2", 1 );
+									UpdateLCD();
+								}
+
+								if( inputs == BUTTON_E )
+								{
+									if( Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context == 0 )
+									{
+										break;
+									}
+									else if( Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context > 0 )
+									{
+										SaveEverythingToFlashMemory( 0 );
+										ReadInputs( &inputs, 0 );
+										inputs = 0;
+
+										WriteLCD_LineCentered( "Total Gate Drops", 0 );
+										WriteLCD_LineCentered( "Saved to memory", 1 );
+										UpdateLCD();
+
+										Delay( 2000 );
+
+										Menu_Index = SAVE_TOTAL_GATE_DROPS;
+									}
+									break;
+								}
+								continue;
 							}
 							break;
 						}
@@ -6173,6 +6230,13 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].caption,   "ZERO GATE DROP COUNT" );
 	SetMenuText( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
 	ItemCopy( ZERO_TOTAL_GATE_DROPS, Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context, 0, 1 );
+
+	ClearContexts( SAVE_TOTAL_GATE_DROPS );
+	Menu_Array[ SAVE_TOTAL_GATE_DROPS ].menu_type  = VIEW_LIST;
+	Menu_Array[ SAVE_TOTAL_GATE_DROPS ].item_count = 1;
+	SetMenuText( Menu_Array[ SAVE_TOTAL_GATE_DROPS ].caption,   "SAVE GATE DROP COUNT" );
+	SetMenuText( Menu_Array[ SAVE_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
+	ItemCopy( SAVE_TOTAL_GATE_DROPS, Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context, 0, 1 );
 
 	ClearContexts( CADENCE_VOLUME );
 	Menu_Array[ CADENCE_VOLUME ].menu_type	= EDIT_VALUE;
