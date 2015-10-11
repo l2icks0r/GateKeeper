@@ -18,9 +18,9 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define SPLASH_TEXT
-//#define CADENCE
-//#define NUMBERS
+#define SPLASH_TEXT
+#define CADENCE
+#define NUMBERS
 //#define BATTERY_LOG
 
 #include "TextStrings.h"
