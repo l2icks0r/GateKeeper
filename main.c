@@ -30,7 +30,6 @@
 #include "Square632Hz48k.c"
 #include "Square680Hz48k.c"
 #include "Square740Hz48k.c"
-
 #include "Square1150Hz48k.c"
 
 #ifdef CADENCE
@@ -1313,6 +1312,10 @@ int main( void )
 									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].caption, 0 );
 									WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 									UpdateLCD();
+
+									SaveEverythingToFlashMemory( 0 );
+									ReadInputs( &inputs, 0 );
+									inputs = 0;
 
 									break;
 								}
@@ -3964,6 +3967,8 @@ void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, c
 	*elapsed_time = (sensor_A < sensor_B) ? sensor_B : sensor_A;
 	const unsigned int sensor_delta	= (sensor_A < sensor_B) ? sensor_B - sensor_A : sensor_A - sensor_B;
 
+	// speed = (d * (60 * 60) / (5280 * 12)) / (t / 10000)
+	// speed = 5d / 88t
 	*speed = ((float)sensor_spacing * (3600.0f / 63360.0f)) / ( (float) sensor_delta / 10000.0f );
 
 	*speed_integer 	 = (int)*speed;
