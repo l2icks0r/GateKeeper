@@ -21,6 +21,7 @@
 #define SPLASH_TEXT
 #define CADENCE
 #define NUMBERS
+#define MEASURE_BATTERY
 //#define BATTERY_LOG
 
 #include "TextStrings.h"
@@ -112,6 +113,9 @@ void StartTimers( void );
 void ShortDelay ( const unsigned int ticks );
 void Delay		( const unsigned int milliseconds );
 
+// unused test functions - SysTick_Handler defined below SysTick_Init()
+void SysTick_Init( void );
+
 // random number generator (RNG)
 static unsigned int GetRandomNumber( void );
 
@@ -200,6 +204,8 @@ int LightTestCycle( const unsigned int allow_abort );
 void ReadLightExitControlInput( int light_context );
 
 void ValidateUUIDMask( void );
+
+
 
 enum INPUTS { 	BUTTON_A 		= 0x0001,
 				BUTTON_B 		= 0x0010,
@@ -326,6 +332,11 @@ struct TIMING_DEFINITION
 #define ADDR_FLASH_SECTOR_11  0x080E0000 // starting address of sector 11, 128 K
 #define ADDR_UUID ((uint32_t *)0x1FFF7A10)
 
+// from http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.dui0553a/Babieigh.html
+#define ADDR_SYST_CSR ((uint32_t *)0xE000E010) // address of SysTick Status Register
+#define ADDR_SYST_RVR ((uint32_t *)0xE000E014) // address of SysTick Relload Value Register
+#define ADDR_SYST_CVR ((uint32_t *)0xE000E018) // address of SysTick Current Value Register
+
 #define UUID_VALIDATE_CHECKS  15
 
 // define actual hardware memory addresses to read/write from flash (sector 1)
@@ -431,6 +442,7 @@ static unsigned int UUID_Check = 0;
 static unsigned int Battery_Levels[ 100 ];
 #endif
 
+static volatile uint64_t SystemTick;
 
 
 int main( void )
@@ -457,6 +469,8 @@ int main( void )
 	Starting_Charge_Level = 0;
 	Charge_Change = 0;
 
+	SysTick_Init();
+
 	InitAudio();
 
 	// do initial save of settings if this is the first time the code has ran
@@ -464,7 +478,9 @@ int main( void )
 
 	ValidateUUIDMask();
 
+#ifdef MEASURE_BATTERY
 	BatteryLevel( 1 );
+#endif
 
 	// enable gates
  	GPIO_ResetBits( GPIOA, GPIO_Pin_3 );	// gate drive enable
@@ -485,12 +501,13 @@ int main( void )
 			case STARTUP:
 			{
 				// do not permit usage with battery voltage at less than ~12vdc
+#ifdef MEASURE_BATTERY
 				if( BatteryLevel( 0 ) < 290000.0f )
 				{
 					Device_State = RECHARGE;
 					break;
 				}
-
+#endif
 				// initialize attenuator
 				SetAttenuator( 0x41FF );		// write TCON (enable all)
 				SetAttenuator( 0x1000 | 50 );	// write pot 1 (pot 1 = STM32 audio)
@@ -554,12 +571,13 @@ int main( void )
 
 					do
 					{
+#ifdef MEASURE_BATTERY
 						if( ReadBatteryCondition() < 2900 ) // permit running battery down to 0%
 						{
 							Device_State = RECHARGE;
 							break;
 						}
-
+#endif
 						// update battery condition in realtime if battery condition menu is the current menu being displayed
 						if( Menu_Index == BATTERY_CONDITION )
 						{
@@ -5129,7 +5147,9 @@ void StartTimers( void )
     RCC->APB1ENR	|= RCC_APB1ENR_TIM6EN;  	// Enable TIM6 clock
 
     //TIM6->PSC		= 8399;                		// 84,000,000 Hz / 8,400 = 10,000 timer ticks per second
-    TIM6->PSC		= 839;                		// 84,000,000 Hz / 8,40 = 100,000 timer ticks per second
+    TIM6->PSC		= 839;                		// 84,000,000 Hz / 8,40 = 100,000 timer ticks per second // 10KHz
+    //TIM6->PSC		= 419;                		// 20 KHz
+    //TIM6->PSC		= 83;                		// 100 KHz (1 MHz)
     TIM6->ARR		= 9;                   		// 10,000 Hz / 10 = 1000 timer ints per second
 
     //TIM6->CR1		|= TIM_CR1_OPM;             // One pulse mode
@@ -5187,7 +5207,7 @@ void TIM6_DAC_IRQHandler()
 {
     TIM6->SR &= ~TIM_SR_UIF;   // interrupt has been handled
 
-	Timer6_Tick += 1;
+    Timer6_Tick += 1;
 
 	if( Timing_Active == 1 )
 	{
@@ -5371,6 +5391,21 @@ void TIM6_DAC_IRQHandler()
 			return;
 		}
 	}
+}
+
+void SysTick_Init( void )
+{
+	// enable hardware directly
+	ADDR_SYST_RVR[0] = 167; // CPU Speed of 168MHz / 168 - 1 = 1MHz (0 - 167)
+	ADDR_SYST_CVR[0] = 0;
+	ADDR_SYST_CSR[0] = ADDR_SYST_CSR[0] | 0b00000000000000000000000000000111;
+
+	SystemTick = 0;
+}
+
+void SysTick_Handler( void )
+{
+	SystemTick++;
 }
 
 void PulseSolenoid( const unsigned int pulse_time )
@@ -5746,8 +5781,11 @@ int ReadBatteryCondition( void )
 	ADC_SoftwareStartConv( ADC1 );
 	while( !ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC) );
 
+#ifdef MEASURE_BATTERY
 	int battery_level = ADC_GetConversionValue( ADC1 );
-
+#else
+	int battery_level = 0;
+#endif
 	return battery_level;
 }
 
