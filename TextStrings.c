@@ -7,7 +7,7 @@
 void InitTextStrings( void )
 {
 	DecryptString( Splash_Text_0,	 		splash_text_0 			); 	// ** RRP BMX GATES **
-	DecryptString( Splash_Text_1,	 		splash_text_1 			); 	// Epicenter v0.9.4
+	DecryptString( Splash_Text_1,	 		splash_text_1 			); 	// Epicenter v0.9.5
 
 	DecryptString( Device_Information,		device_information 		);	// -Device Information-
 	DecryptString( Ownership_Information, 	ownership_information 	); 	// ...
