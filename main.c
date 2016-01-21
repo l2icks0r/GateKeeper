@@ -4039,8 +4039,8 @@ void CalculateSpeed( const uint32_t speed_tick_delta, const unsigned int sensor_
 
 	// speed = (d * (60 * 60) / (5280 * 12)) / (t / 84Mhz)
 	// speed = 5d / 88t
-	*speed = ((float)(326772) * (3600.0f / 63360.0f)) / (10000.0f * (float) speed_tick_delta / 84000000.0f );
-//	*speed = ((float)(sensor_spacing) * (3600.0f / 63360.0f)) / (10000.0f * (float) speed_tick_delta / 84000000.0f );
+	//*speed = ((float)(326772) * (3600.0f / 63360.0f)) / (10000.0f * (float) speed_tick_delta / 84000000.0f );
+	*speed = ((float)(sensor_spacing) * (3600.0f / 63360.0f)) / (10000.0f * (float) speed_tick_delta / 84000000.0f );
 
 	*speed_integer 	 = (int)*speed;
 	*speed_fractional= (int)(*speed * 1000.0f) % 1000;
