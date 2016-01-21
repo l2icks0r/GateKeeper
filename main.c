@@ -75,7 +75,7 @@
 #include "Second.c"
 #include "Seconds.c"
 #include "Point.c"
-#include "VolumeAt.c"
+//#include "VolumeAt.c"	// no room...
 //#include "BatteryAt.c"
 #include "LastTimeWas.c"
 #include "MilesPerHour.c"
@@ -93,8 +93,8 @@ static char display_memory_cache[ DISPLAY_HEIGHT ] [ DISPLAY_WIDTH ];
 
 
 // F4 initialization
-void InitPorts 				( void );
 void InitClocks				( void );
+void InitPorts 				( void );
 void InitAudio 				( void );
 void InitLCD		 		( void );
 void DefineCustomCharacters	( void );
@@ -106,15 +106,18 @@ void WriteLCD_LineCentered	( const char * pString, const unsigned int line_no );
 void UpdateLCD		 		( void );
 
 
-// timer
-static unsigned int Timer6_Tick	= 0;
+// timers
+void SysTick_Init( void );	static volatile uint64_t	SystemTick;
+void StartTimers ( void );	static volatile uint32_t	Timer6_Tick;
 
-void StartTimers( void );
+// support functions for using input capture to measure speed
+void EnableSpeedMeasurement	( void );
+void DisableSpeedMeasurement( void );
+void ResetSpeedMeasurement	( void );
+
 void ShortDelay ( const unsigned int ticks );
 void Delay		( const unsigned int milliseconds );
 
-// unused test functions - SysTick_Handler defined below SysTick_Init()
-void SysTick_Init( void );
 
 // random number generator (RNG)
 static unsigned int GetRandomNumber( void );
@@ -172,7 +175,7 @@ void GetTimeFromTicks( const unsigned int ticks, unsigned int *minutes, unsigned
 void GetTimeString	 ( const unsigned int sensor_ticks, char *time_string );
 void GetTimesString	 ( const unsigned int sensor_1, const unsigned int sensor_2, char *sensor_1_string, char *sensor_2_string );
 
-void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
+void CalculateSpeed( const uint32_t speed_tick_delta, const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
 					 unsigned int * elapsed_time, float * speed , unsigned int * speed_integer, unsigned int * speed_fractional );
 
 void ProcessTimeAndSpeed( const unsigned int aux_config, const unsigned int elapsed_time, const int speed, const unsigned int speed_integer, const unsigned int speed_fractional );
@@ -392,6 +395,10 @@ static float Anti_Slam_Pulse_Width  = 0.0f;
 static float Anti_Slam_Increment 	= 0.0f;
 static int	 Anti_Slam_Gate_Up 		= 0;
 
+// timing ticks at 84MHz for speeds
+static uint32_t Aux_1_Speed_Tick_Delta = 0;
+static uint32_t Aux_2_Speed_Tick_Delta = 0;
+
 // sensor ticks set by timer 6 and cleared in DropGate()
 static unsigned int Timing_Active = 0;
 
@@ -442,7 +449,6 @@ static unsigned int UUID_Check = 0;
 static unsigned int Battery_Levels[ 100 ];
 #endif
 
-static volatile uint64_t SystemTick;
 
 
 int main( void )
@@ -454,11 +460,11 @@ int main( void )
 
 	SystemInit();  // line 221 of system_stm32f4xx.c
 
-	StartTimers(); // system ticks
-
 	InitClocks();
 
 	InitPorts();
+
+	StartTimers(); // system ticks
 
 	InitLCD();
 
@@ -489,9 +495,11 @@ int main( void )
 
 	SetGateMenuState();
 
+
 	// called to ignore first result which is false
 	ReadInputs( & inputs, 1 );
 	ReadInputs( & inputs, 1 );
+
 
 	// the one and only main loop
 	while ( 1 )
@@ -519,7 +527,7 @@ int main( void )
 #ifdef SPLASH_TEXT
 				// decoy text
 				const char splash_0[] = "** RRP BMX GATES **";
-				const char splash_1[] = "Epicenter v0.9.4";
+				const char splash_1[] = "Epicenter v0.9.5";
 				int blah = strlen( splash_0 ) + strlen( splash_1 );
 				blah++;
 
@@ -900,7 +908,7 @@ int main( void )
 						SetAttenuator( 0x1000 | cadence_volume );
 #ifdef NUMBERS
 						PlaySilence( 100, 0 );
-						PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
+//						PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
 						PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
 						InitAudio();
 #endif
@@ -1344,8 +1352,36 @@ int main( void )
 
 									while( 1 )
 									{
-										// add cursor
-										sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d inches \2", Menu_Array[ Menu_Index ].sub_context_1 );
+										const int inch 		 = Menu_Array[ Menu_Index ].sub_context_1 / 10000;
+										const int fractional = Menu_Array[ Menu_Index ].sub_context_1 % 10000;
+
+										char szFractional[ 7 ];
+
+										switch ( fractional )
+										{
+											case  0 * 625:	{ strcpy( szFractional, ""		); break; }
+											case  1 * 625:	{ strcpy( szFractional, "1/16"  ); break; }
+											case  2 * 625:	{ strcpy( szFractional, "1/8"	); break; }
+											case  3 * 625:	{ strcpy( szFractional, "3/16"	); break; }
+											case  4 * 625:	{ strcpy( szFractional, "1/4"	); break; }
+											case  5 * 625:	{ strcpy( szFractional, "5/16"	); break; }
+											case  6 * 625:	{ strcpy( szFractional, "3/8"	); break; }
+											case  7 * 625:	{ strcpy( szFractional, "7/16"	); break; }
+											case  8 * 625:	{ strcpy( szFractional, "1/2"	); break; }
+											case  9 * 625:	{ strcpy( szFractional, "9/16"	); break; }
+											case 10 * 625:	{ strcpy( szFractional, "5/8"	); break; }
+											case 11 * 625:	{ strcpy( szFractional, "11/16"	); break; }
+											case 12 * 625:	{ strcpy( szFractional, "3/4"	); break; }
+											case 13 * 625:	{ strcpy( szFractional, "13/16"	); break; }
+											case 14 * 625:	{ strcpy( szFractional, "7/8"	); break; }
+											case 15 * 625:	{ strcpy( szFractional, "15/16"	); break; }
+										}
+
+										if( fractional != 0 )
+											sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d %s inches \2", inch, szFractional );
+										else
+											sprintf( Menu_Array[ Menu_Index ].item[ 0 ], "\1 %d inches \2", inch );
+
 										WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 										UpdateLCD();
 
@@ -1358,9 +1394,9 @@ int main( void )
 										// change menu value
 										if( encoder_delta != 0 )
 										{
-											int new_value = Menu_Array[ Menu_Index ].sub_context_1 + encoder_delta;
+											int new_value = Menu_Array[ Menu_Index ].sub_context_1 + encoder_delta * 625; // 0.0625" or 1/16"
 
-											if( new_value >= 12 && new_value <= 72 )
+											if( (new_value >= 12 * 10000) && (new_value <= 72 * 10000) )
 											{
 												Menu_Array[ Menu_Index ].sub_context_1 = new_value;
 
@@ -2011,7 +2047,7 @@ int main( void )
 
 #ifdef NUMBERS
 							PlaySilence( 100, 0 );
-							PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
+//							PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
 							PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
 							InitAudio();
 #endif
@@ -2818,6 +2854,10 @@ int main( void )
  */
 			case WAIT_FOR_SENSORS:
 			{
+				DisableSpeedMeasurement();
+				ResetSpeedMeasurement();
+				EnableSpeedMeasurement();
+
 				if( Cancel_Timing == 1 )
 				{
 					Timing_Active = 0;
@@ -2825,7 +2865,6 @@ int main( void )
 					// go to main menu
 					Device_State = WAIT_FOR_USER;
 					break;
-
 				}
 
 				int inputs = 0;
@@ -3028,8 +3067,8 @@ int main( void )
 						{
 							float speed_1, speed_2;
 
-							CalculateSpeed( sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, & elapsed_time_1, & speed_1, & speed_integer_1, & speed_fractional_1 );
-							CalculateSpeed( sensor_2A, sensor_2B, Aux_2_Sensor_Spacing, & elapsed_time_2, & speed_2, & speed_integer_2, & speed_fractional_2 );
+							CalculateSpeed( Aux_1_Speed_Tick_Delta, sensor_1A, sensor_1B, Aux_1_Sensor_Spacing, & elapsed_time_1, & speed_1, & speed_integer_1, & speed_fractional_1 );
+							CalculateSpeed( Aux_2_Speed_Tick_Delta, sensor_2A, sensor_2B, Aux_2_Sensor_Spacing, & elapsed_time_2, & speed_2, & speed_integer_2, & speed_fractional_2 );
 
 							if( elapsed_time_1 > elapsed_time_2 )
 							{
@@ -3119,6 +3158,8 @@ int main( void )
 				Device_State = WAIT_FOR_USER;
 				break;
 			}
+
+			DisableSpeedMeasurement();
 		}
 	}
 }
@@ -3186,14 +3227,15 @@ void DropGate( int test )
 
 #ifdef CADENCE
 		// start playing the voice part of the cadence
-		PlaySample24khz( OkRidersData,		0, OK_RIDERS_SIZE,		0 );
-		PlaySilence( 149, 0 );
+		PlaySample24khz( OkRidersData,		0, OK_RIDERS_SIZE,		0 );	// t = 653ms
+		PlaySilence( 140, 0 );	// time to wait between "RIDERS" and "RANDOM"
+		PlaySample24khz( RandomStartData,	0, RANDOM_START_SIZE,	0 );	// t = 707ms
 
-		PlaySample24khz( RandomStartData,	0, RANDOM_START_SIZE,	0 );
-		PlaySilence( 1810, 0 );
+		PlaySilence( 1800, 0 );	// UCI spec
 
-		PlaySample24khz( RidersReadyData,	0, RIDERS_READY_SIZE,	0 );
-		PlaySilence( 179, 0 );
+		PlaySample24khz( RidersReadyData,	0, RIDERS_READY_SIZE,	0 );	// t = 1058ms
+		PlaySilence( 204, 0 );  // time to wait in between "READY" and "WATCH"
+
 #endif
 
 		if( Cadence_Cancelled == 1 )
@@ -3217,12 +3259,14 @@ void DropGate( int test )
 		else
 		{
 #ifdef CADENCE
-			PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );
+			PlaySample24khz( WatchTheGateData,	0, WATCH_THE_GATE_SIZE,	0 );	// t = 738ms
 #endif
 		}
 
+		// total time to play above samples and delays is 5.3 seconds at this point
+
 		// wait 0.10 to 2.7 seconds
-		PlaySilence( GetRandomNumber() % 2600 + 100, 0 );
+		PlaySilence( 100 + GetRandomNumber() % 2600, 0 );
 	}
 
 	if( Cadence_Cancelled == 1 )
@@ -3256,6 +3300,13 @@ void DropGate( int test )
 			if( test == 1 ) PlaySilence( 60, 0 );	// HORRIBLE hacky fix because of not having sound done through DMA
 		}
 
+		if( Menu_Array[ AUX_1_CONFIG ].context == AUX_TIME_SPEED || Menu_Array[ AUX_2_CONFIG ].context == AUX_TIME_SPEED )
+		{
+			DisableSpeedMeasurement();
+			ResetSpeedMeasurement();
+			EnableSpeedMeasurement();
+		}
+
 		// play the cadence tones and light the lights
 		GPIO_SetBits( GPIOD, GPIO_Pin_12 );	// RED light ON
 		PlayTone( 60, Square632HzData, SQUARE_632HZ_SIZE, 1 );
@@ -3272,6 +3323,7 @@ void DropGate( int test )
 		GPIO_SetBits( GPIOD, GPIO_Pin_15 );	// GREEN light ON
 
 		// reset system ticks, will be displayed for timing and used with delays
+
 		Timer6_Tick 		= 0;
 
 		Aux_1_Infrared_Poll = 0;
@@ -3358,13 +3410,13 @@ void DoReactionGame( const unsigned int player_count )
 #ifdef CADENCE
 		// start playing the voice part of the cadence
 		PlaySample24khz( OkRidersData,		0, OK_RIDERS_SIZE,		0 );
-		PlaySilence( 149, 0 );
+		PlaySilence( 140, 0 );
 
 		PlaySample24khz( RandomStartData,	0, RANDOM_START_SIZE,	0 );
-		PlaySilence( 1810, 0 );
+		PlaySilence( 1800, 0 );
 
 		PlaySample24khz( RidersReadyData,	0, RIDERS_READY_SIZE,	0 );
-		PlaySilence( 179, 0 );
+		PlaySilence( 204, 0 );
 #endif
 
 #ifdef CADENCE
@@ -3372,7 +3424,7 @@ void DoReactionGame( const unsigned int player_count )
 #endif
 
 		// wait 0.10 to 2.7 seconds
-		PlaySilence( GetRandomNumber() % 2600 + 100, 0 );
+		PlaySilence( 100 + GetRandomNumber() % 2600, 0 );
 
 		// initialize the sensors so the tick value is set only once from the timer 6 interrupt
 		Aux_1_Sensor_A_Tick = 0;
@@ -3703,10 +3755,10 @@ int LightTestCycle( const unsigned int allow_abort )
 		}
 	}
 
-	GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
-	GPIO_ResetBits( GPIOD, GPIO_Pin_13 );// AMBER 1 light OFF
-	GPIO_ResetBits( GPIOD, GPIO_Pin_14 );// AMBER 2 light OFF
-	GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
+	GPIO_ResetBits( GPIOD, GPIO_Pin_12 ); // RED light OFF
+	GPIO_ResetBits( GPIOD, GPIO_Pin_13 ); // AMBER 1 light OFF
+	GPIO_ResetBits( GPIOD, GPIO_Pin_14 ); // AMBER 2 light OFF
+	GPIO_ResetBits( GPIOD, GPIO_Pin_15 ); // GREEN light OFF
 
 	return abort_flag;
 }
@@ -3764,10 +3816,10 @@ void ReadLightExitControlInput( int light_context )
 
 		if( Light_Code == 0x7A4F )
 		{
-			GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
-			GPIO_ResetBits( GPIOD, GPIO_Pin_13 );// AMBER 1 light OFF
-			GPIO_ResetBits( GPIOD, GPIO_Pin_14 );// AMBER 2 light OFF
-			GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
+			GPIO_ResetBits( GPIOD, GPIO_Pin_12 ); // RED light OFF
+			GPIO_ResetBits( GPIOD, GPIO_Pin_13 ); // AMBER 1 light OFF
+			GPIO_ResetBits( GPIOD, GPIO_Pin_14 ); // AMBER 2 light OFF
+			GPIO_ResetBits( GPIOD, GPIO_Pin_15 ); // GREEN light OFF
 
 			WriteLCD_LineCentered( Device_Information, 0 );
 
@@ -3980,15 +4032,15 @@ void GetTimesString( const unsigned int sensor_1, const unsigned int sensor_2, c
 	for( i = 0, j = DISPLAY_WIDTH - adjust; j < DISPLAY_WIDTH; j++, i++ ) sensor_2_time_string[ j ] = temp_string[ i ];
 }
 
-void CalculateSpeed( const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
+void CalculateSpeed( const uint32_t speed_tick_delta, const unsigned int sensor_A, const unsigned int sensor_B, const unsigned int sensor_spacing,
 					 unsigned int * elapsed_time, float * speed , unsigned int * speed_integer, unsigned int * speed_fractional )
 {
 	*elapsed_time = (sensor_A < sensor_B) ? sensor_B : sensor_A;
-	const unsigned int sensor_delta	= (sensor_A < sensor_B) ? sensor_B - sensor_A : sensor_A - sensor_B;
 
-	// speed = (d * (60 * 60) / (5280 * 12)) / (t / 10000)
+	// speed = (d * (60 * 60) / (5280 * 12)) / (t / 84Mhz)
 	// speed = 5d / 88t
-	*speed = ((float)sensor_spacing * (3600.0f / 63360.0f)) / ( (float) sensor_delta / 10000.0f );
+	*speed = ((float)(326772) * (3600.0f / 63360.0f)) / (10000.0f * (float) speed_tick_delta / 84000000.0f );
+//	*speed = ((float)(sensor_spacing) * (3600.0f / 63360.0f)) / (10000.0f * (float) speed_tick_delta / 84000000.0f );
 
 	*speed_integer 	 = (int)*speed;
 	*speed_fractional= (int)(*speed * 1000.0f) % 1000;
@@ -4193,7 +4245,10 @@ int DoTimeAndSpeed( const unsigned int aux1_option,
 		unsigned int elapsed_time, speed_integer, speed_fractional;
 		float speed;
 
-		CalculateSpeed( speed_sensor_A, speed_sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
+		if( speed_config == AUX_1_CONFIG )
+			CalculateSpeed( Aux_1_Speed_Tick_Delta, speed_sensor_A, speed_sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
+		else
+			CalculateSpeed( Aux_2_Speed_Tick_Delta, speed_sensor_A, speed_sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
 
 		if( ( time_sensor > speed_sensor_A ) || time_sensor > speed_sensor_B )
 		{
@@ -4315,7 +4370,10 @@ int DoSpeedAndDisabled( const unsigned int aux_config, const unsigned int sensor
 		unsigned int elapsed_time, speed_integer, speed_fractional;
 		float speed;
 
-		CalculateSpeed( sensor_A, sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
+		if( aux_config == AUX_1_CONFIG )
+			CalculateSpeed( Aux_1_Speed_Tick_Delta, sensor_A, sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
+		else
+			CalculateSpeed( Aux_2_Speed_Tick_Delta, sensor_A, sensor_B, sensor_spacing, & elapsed_time, & speed, & speed_integer, & speed_fractional );
 
 		ProcessTimeAndSpeed( aux_config, elapsed_time, speed, speed_integer, speed_fractional );
 
@@ -4369,6 +4427,10 @@ void DoSprintTimer( const unsigned int aux_config )
 
 	unsigned int timeout = 0; // if speed sensor is not hit within 1.5 seconds then just save time
 
+	DisableSpeedMeasurement();
+	ResetSpeedMeasurement();
+	EnableSpeedMeasurement();
+
 	do
 	{
 		ReadInputs( & inputs, 1 );
@@ -4400,8 +4462,8 @@ void DoSprintTimer( const unsigned int aux_config )
 			sensor_2	= 0;
 
 #ifdef NUMBERS
-			// if button B was pressed on the remote announce last time, speed, or time + speed
-			if( GPIOB->IDR & 0x4000 )
+			// if button D was pressed on the remote announce last time, speed, or time + speed
+			if( GPIOD->IDR & 0x0100 )
 			{
 				PlaySilence( 100, 1 );
 
@@ -4480,6 +4542,10 @@ void DoSprintTimer( const unsigned int aux_config )
 					else
 						WriteLCD_LineCentered( "AUX 2 sensor faulty", 1 );
 					UpdateLCD();
+
+					DisableSpeedMeasurement();
+					ResetSpeedMeasurement();
+					EnableSpeedMeasurement();
 				}
 
 				Delay( 1250 );
@@ -4503,7 +4569,10 @@ void DoSprintTimer( const unsigned int aux_config )
 				unsigned int sensor_delta = 0, speed_integer = 0, speed_fractional = 0;
 
 				// determine speed
-				CalculateSpeed( sensor_1A, sensor_1B, sensor_spacing, & sensor_delta, & speed, & speed_integer, & speed_fractional );
+				if( aux_config == AUX_1_CONFIG )
+					CalculateSpeed( Aux_1_Speed_Tick_Delta, sensor_1A, sensor_1B, sensor_spacing, & sensor_delta, & speed, & speed_integer, & speed_fractional );
+				else
+					CalculateSpeed( Aux_2_Speed_Tick_Delta, sensor_1A, sensor_1B, sensor_spacing, & sensor_delta, & speed, & speed_integer, & speed_fractional );
 
 				// determine elapsed time if it was triggered
 				unsigned int elapsed_time = 0;
@@ -4545,10 +4614,14 @@ void DoSprintTimer( const unsigned int aux_config )
 						InitAudio();
 					}
 #endif
+					DisableSpeedMeasurement();
+					ResetSpeedMeasurement();
+					EnableSpeedMeasurement();
 				}
 
-				Delay( 2000 );
-
+#ifndef NUMBERS
+				Delay( 1000 );
+#endif
 				// reset
 				Aux_1_Sensor_A_Tick = 0;
 				Aux_1_Sensor_B_Tick = 0;
@@ -4562,6 +4635,8 @@ void DoSprintTimer( const unsigned int aux_config )
 		}
 
 	} while( inputs != BUTTON_E );
+
+	DisableSpeedMeasurement();
 }
 
 void CopyTimerHistoryDown( void )
@@ -4615,6 +4690,18 @@ void AddTimeToTimerHistory( const unsigned int aux_config, const unsigned int el
 	SetMenuText( Menu_Array[ TIMER_HISTORY ].item[ 0 ], Timer_History[ 0 ].time_string );
 }
 
+void InitClocks( void )
+{
+	RCC_ClocksTypeDef RCC_ClocksStruct;
+	RCC_GetClocksFreq( &RCC_ClocksStruct );
+
+	// by default values should equal:
+	// SYSCLK_Frequency	= 0x0A037A00, 168,000,000, 168MHz
+	// HCLK_Frequency	= 0x0A037A00, 168MHz
+	// PCLK1_Frequency	= 0x0280DE80, 42MHz
+	// PCLK2_Frequency	= 0x0501BD00, 84MHz
+}
+
 void InitPorts( void )
 {
 	GPIO_InitTypeDef GPIO_InitStructure;
@@ -4661,14 +4748,29 @@ void InitPorts( void )
 	GPIO_InitStructure.GPIO_Pin		= GPIO_Pin_10 | GPIO_Pin_11 | GPIO_Pin_12 | GPIO_Pin_13;
 	GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_OUT;
 	GPIO_InitStructure.GPIO_OType	= GPIO_OType_PP;
-	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_100MHz;
 	GPIO_InitStructure.GPIO_PuPd	= 0;
 	GPIO_Init( GPIOB, &GPIO_InitStructure );
 
-	GPIO_InitStructure.GPIO_Pin		= GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_14 | GPIO_Pin_15;
-	GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_IN;
+	// Aux port 1, Aux port 2
+	GPIO_InitStructure.GPIO_Pin		= GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_7 | GPIO_Pin_8;
+	GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_AF;
 	GPIO_InitStructure.GPIO_OType	= GPIO_OType_PP;
-	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_100MHz;
+	GPIO_InitStructure.GPIO_PuPd	= 0;
+	GPIO_Init( GPIOB, &GPIO_InitStructure );
+
+	// setup input capture pins to timers for auxiliary ports
+//	GPIO_PinAFConfig( GPIOB, GPIO_PinSource4, GPIO_AF_TIM3 );
+//	GPIO_PinAFConfig( GPIOB, GPIO_PinSource5, GPIO_AF_TIM3 );
+//	GPIO_PinAFConfig( GPIOB, GPIO_PinSource7, GPIO_AF_TIM4 );
+//	GPIO_PinAFConfig( GPIOB, GPIO_PinSource8, GPIO_AF_TIM4 );
+
+	// remote buttons, audio in detect, battery
+	GPIO_InitStructure.GPIO_Pin		= GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_14 | GPIO_Pin_15;
+	GPIO_InitStructure.GPIO_Mode	= GPIO_Mode_OUT;
+	GPIO_InitStructure.GPIO_OType	= GPIO_OType_PP;
+	GPIO_InitStructure.GPIO_Speed 	= GPIO_Speed_100MHz;
 	GPIO_InitStructure.GPIO_PuPd	= 0;
 	GPIO_Init( GPIOB, &GPIO_InitStructure );
 
@@ -4790,10 +4892,509 @@ void InitPorts( void )
 	RNG_Cmd( ENABLE );
 }
 
-void InitClocks( void )
+void SysTick_Init( void )
 {
-	RCC_ClocksTypeDef RCC_Clocks;
-	RCC_GetClocksFreq( &RCC_Clocks );
+	// CPU Speed is 168MHz - a reload value(RVR) of 83 results in an unstable 995.055KHz update frequency according to the Rigol DS1052E
+	// presumably the waveform is unstable because this interrupt is sharing time with the CPU?
+	ADDR_SYST_RVR[0] = 83;
+	ADDR_SYST_CVR[0] = 0;
+	ADDR_SYST_CSR[0] = ADDR_SYST_CSR[0] | 0b00000000000000000000000000000111;
+
+	SystemTick = 0;
+}
+
+void StartTimers( void )
+{
+	// following instructions start at line 168 from stm32f4xx_tim.c
+	// enable all clocks for all timers
+	RCC_APB1PeriphClockCmd( RCC_APB1Periph_TIM2, ENABLE );
+	RCC_APB1PeriphClockCmd( RCC_APB1Periph_TIM3, ENABLE );
+	RCC_APB1PeriphClockCmd( RCC_APB1Periph_TIM4, ENABLE );
+	RCC_APB1PeriphClockCmd( RCC_APB1Periph_TIM5, ENABLE );
+
+	// set speeds for all timers
+	TIM_TimeBaseInitTypeDef TimeBaseDefaults;
+
+	// Default configuration:
+	// ----------------------
+	//  update freq (Hz) = TIM_CLK / (PSC+1)
+	//
+	//	TIM_CLK = timer clock input (84MHz)
+	//	PSC = 16-bit prescalar register
+	//	ARR = 16/32-bit autoreload register
+	//  RCR = 16-bit repetition counter
+	//
+	//  TIM_CounterMode		  = TIM_CounterMode_Up;
+	//  TIM_ClockDivision	  = TIM_CKD_DIV1;
+	//
+	//  TIM_Prescaler		  = 0x0000;		(PreSCaler PSC)
+	//  TIM_Period			  = 0xFFFFFFFF;	(Auto Reload Register  ARR)
+	//  TIM_RepetitionCounter = 0x0000;		(RepetitionCounteR RCR)
+	//
+	TIM_TimeBaseStructInit( & TimeBaseDefaults );
+
+	TIM_TimeBaseInit( TIM2, & TimeBaseDefaults );
+	TIM_TimeBaseInit( TIM3, & TimeBaseDefaults );
+	TIM_TimeBaseInit( TIM4, & TimeBaseDefaults );
+	TIM_TimeBaseInit( TIM5, & TimeBaseDefaults );
+
+	// Set input capture settings for timers 3 and  4
+	TIM_ICInitTypeDef TIM_ICInitStructure;
+
+	TIM_ICInitStructure.TIM_Channel 	= TIM_Channel_1;
+	TIM_ICInitStructure.TIM_ICPolarity  = TIM_ICPolarity_Falling;
+	TIM_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI;
+	TIM_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1;
+	TIM_ICInitStructure.TIM_ICFilter	= 0;
+	TIM_ICInit( TIM3, &TIM_ICInitStructure);
+
+	TIM_ICInitStructure.TIM_Channel 	= TIM_Channel_2;
+	TIM_ICInitStructure.TIM_ICPolarity  = TIM_ICPolarity_Falling;
+	TIM_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI;
+	TIM_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1;
+	TIM_ICInitStructure.TIM_ICFilter	= 0;
+	TIM_ICInit( TIM3, &TIM_ICInitStructure);
+
+	TIM_ICInitStructure.TIM_Channel 	= TIM_Channel_2;
+	TIM_ICInitStructure.TIM_ICPolarity  = TIM_ICPolarity_Falling;
+	TIM_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI;
+	TIM_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1;
+	TIM_ICInitStructure.TIM_ICFilter	= 0;
+	TIM_ICInit( TIM4, &TIM_ICInitStructure);
+
+	TIM_ICInitStructure.TIM_Channel 	= TIM_Channel_3;
+	TIM_ICInitStructure.TIM_ICPolarity  = TIM_ICPolarity_Falling;
+	TIM_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI;
+	TIM_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1;
+	TIM_ICInitStructure.TIM_ICFilter	= 0;
+	TIM_ICInit( TIM4, &TIM_ICInitStructure);
+
+	EnableSpeedMeasurement();
+	DisableSpeedMeasurement();
+	ResetSpeedMeasurement();
+
+	// add interrupt service routines to update
+	NVIC_InitTypeDef NVIC_InitStructure;
+
+	NVIC_InitStructure.NVIC_IRQChannel 			 		 = TIM3_IRQn;
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority 		 = 2;
+	NVIC_InitStructure.NVIC_IRQChannelCmd		  		 = ENABLE;
+	NVIC_Init( &NVIC_InitStructure );
+
+	NVIC_InitStructure.NVIC_IRQChannel 			 		 = TIM4_IRQn;
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority 		 = 3;
+	NVIC_InitStructure.NVIC_IRQChannelCmd		  		 = ENABLE;
+	NVIC_Init( &NVIC_InitStructure );
+
+	TIM_ITConfig( TIM2, TIM_IT_Update, ENABLE );
+	TIM_ITConfig( TIM5, TIM_IT_Update, ENABLE );
+
+	TIM_Cmd( TIM3, ENABLE );
+	TIM_Cmd( TIM4, ENABLE );
+
+	// timer 6
+    RCC->APB1ENR	|= RCC_APB1ENR_TIM6EN;  	// Enable timer 6 clock
+
+    TIM6->PSC		= 839;                		// 84,000,000 Hz / 8,40 = 100,000 timer ticks per second // 10KHz
+    TIM6->ARR		= 9;                   		// 10,000 Hz / 10 = 1000 timer ints per second
+    TIM6->EGR		|= TIM_EGR_UG;              // Force update
+    TIM6->SR		&= ~TIM_SR_UIF;             // Clear the update flag
+    TIM6->DIER		|= TIM_DIER_UIE;            // Enable interrupt on update event
+
+	NVIC_InitStructure.NVIC_IRQChannel 			 		 = TIM6_DAC_IRQn;
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority 		 = 1;
+	NVIC_InitStructure.NVIC_IRQChannelCmd		  		 = ENABLE;
+	NVIC_Init( &NVIC_InitStructure );
+//    NVIC_EnableIRQ(TIM6_DAC_IRQn);              // Enable TIM6 IRQ
+
+    TIM6->CR1 		|= TIM_CR1_CEN;             // Enable TIM6 counter
+
+    Timer6_Tick = 0;
+
+    // timer 7
+    RCC->APB1ENR	|= RCC_APB1ENR_TIM7EN;  	// Enable timer 7 clock
+
+    TIM7->PSC		= 839;                		// 84,000,000 Hz / 8,40 = 100,000 timer ticks per second
+    TIM7->ARR		= 9;                   		// 10,000 Hz / 10 = 1000 timer ints per second
+    TIM7->EGR		|= TIM_EGR_UG;              // Force update
+    TIM7->SR		&= ~TIM_SR_UIF;             // Clear the update flag
+    TIM7->DIER		|= TIM_DIER_UIE;            // Enable interrupt on update event
+
+	NVIC_InitStructure.NVIC_IRQChannel 			 		 = TIM7_IRQn;
+	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
+	NVIC_InitStructure.NVIC_IRQChannelSubPriority 		 = 2;
+	NVIC_InitStructure.NVIC_IRQChannelCmd		  		 = ENABLE;
+	NVIC_Init( &NVIC_InitStructure );
+//    NVIC_EnableIRQ(TIM7_IRQn);  	            // Enable TIM7 IRQ
+
+    TIM7->CR1 		|= TIM_CR1_CEN;             // Enable TIM7 counter
+}
+
+void EnableSpeedMeasurement( void )
+{
+	TIM_ITConfig( TIM3, TIM_IT_CC1 | TIM_IT_CC2, ENABLE );
+	TIM_ITConfig( TIM4, TIM_IT_CC2 | TIM_IT_CC3, ENABLE );
+
+	TIM_ClearFlag( TIM3, TIM_FLAG_CC1 | TIM_FLAG_CC2 );
+	TIM_ClearFlag( TIM4, TIM_FLAG_CC2 | TIM_FLAG_CC3 );
+
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource4, GPIO_AF_TIM3 );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource5, GPIO_AF_TIM3 );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource7, GPIO_AF_TIM4 );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource8, GPIO_AF_TIM4 );
+}
+
+void DisableSpeedMeasurement( void )
+{
+	TIM3->SR &= ~TIM_SR_UIF;
+	TIM4->SR &= ~TIM_SR_UIF;
+
+	TIM_ITConfig( TIM3, TIM_IT_CC1 | TIM_IT_CC2, DISABLE );
+	TIM_ITConfig( TIM4, TIM_IT_CC2 | TIM_IT_CC3, DISABLE );
+
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource4, GPIO_AF_RTC_50Hz );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource5, GPIO_AF_RTC_50Hz );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource7, GPIO_AF_RTC_50Hz );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource8, GPIO_AF_RTC_50Hz );
+}
+
+void ResetSpeedMeasurement( void )
+{
+	Aux_1_Speed_Tick_Delta = 0;
+	Aux_2_Speed_Tick_Delta = 0;
+
+	TIM2->CNT = 0;
+	TIM5->CNT = 0;
+
+	TIM2->CR1 &= ~TIM_CR1_CEN;
+	TIM5->CR1 &= ~TIM_CR1_CEN;
+
+	TIM3->SR &= ~TIM_IT_CC1; TIM3->SR &= ~TIM_IT_CC2;
+	TIM4->SR &= ~TIM_IT_CC2; TIM4->SR &= ~TIM_IT_CC3;
+}
+
+void SysTick_Handler( void )
+{
+	SystemTick++;
+}
+
+void TIM3_IRQHandler( void )
+{
+	TIM3->SR &= ~TIM_SR_UIF;   // interrupt has been handled
+
+	uint32_t sensor_a = 0;
+	uint32_t sensor_b = 0;
+
+	if( (TIM5->CR1 & TIM_CR1_CEN) == 0 )
+	{
+		Aux_2_Speed_Tick_Delta = 0;
+
+		TIM5->CNT = 0;
+		TIM5->CR1 |= TIM_CR1_CEN;
+	}
+	else
+	{
+		TIM5->CR1 &= ~TIM_CR1_CEN;
+		Aux_2_Speed_Tick_Delta = TIM5->CNT;
+	}
+
+	if (TIM3->SR & TIM_IT_CC1 )
+	{
+		TIM3->SR &= ~TIM_IT_CC1;
+		sensor_a = TIM_GetCapture1( TIM3 );
+
+		TIM_ITConfig( TIM3, TIM_IT_CC1, DISABLE );
+
+//		GPIO_ToggleBits( GPIOD, GPIO_Pin_14 );
+	}
+
+	if (TIM3->SR & TIM_IT_CC2 )
+	{
+		TIM3->SR &= ~TIM_IT_CC2;
+		sensor_b = TIM_GetCapture2( TIM3 );
+
+		TIM_ITConfig( TIM3, TIM_IT_CC2, DISABLE );
+
+//		GPIO_ToggleBits( GPIOD, GPIO_Pin_15 );
+	}
+}
+
+void TIM4_IRQHandler( void )
+{
+	TIM4->SR &= ~TIM_SR_UIF;   // interrupt has been handled
+
+	uint32_t sensor_a = 0;
+	uint32_t sensor_b = 0;
+
+	if( (TIM2->CR1 & TIM_CR1_CEN) == 0 )
+	{
+		Aux_1_Speed_Tick_Delta = 0;
+
+		TIM2->CNT = 0;
+		TIM2->CR1 |= TIM_CR1_CEN;
+	}
+	else
+	{
+		TIM2->CR1 &= ~TIM_CR1_CEN;
+		Aux_1_Speed_Tick_Delta = TIM2->CNT;
+	}
+
+	if (TIM4->SR & TIM_IT_CC2 )
+	{
+		TIM4->SR &= ~TIM_IT_CC2;
+		sensor_a = TIM_GetCapture2( TIM4 );
+
+		TIM_ITConfig( TIM4, TIM_IT_CC2, DISABLE );
+
+//		GPIO_ToggleBits( GPIOD, GPIO_Pin_12 );
+	}
+
+	if (TIM4->SR & TIM_IT_CC3 )
+	{
+		TIM4->SR &= ~TIM_IT_CC3;
+		sensor_b = TIM_GetCapture3( TIM4 );
+
+		TIM_ITConfig( TIM4, TIM_IT_CC3, DISABLE );
+
+//		GPIO_ToggleBits( GPIOD, GPIO_Pin_13 );
+	}
+}
+
+void TIM7_IRQHandler()
+{
+    TIM7->SR &= ~TIM_SR_UIF;   // interrupt has been handled
+
+    if( Start_Reaction_Timing == 0 ) return;
+
+	if( Gate_Drop_Delay != 0 )
+	{
+		Gate_Drop_Delay -= 1;
+
+		unsigned int aux1_sensor = (Aux_1_Sensor_A_Tick | Aux_1_Sensor_B_Tick);
+		unsigned int aux2_sensor = (Aux_2_Sensor_A_Tick | Aux_2_Sensor_B_Tick);
+
+		// used by reaction game
+		if( aux1_sensor != 0 )
+		{
+			Aux_1_Sensor_A_Tick = 0xDEAD;
+			Aux_1_Sensor_B_Tick = 0xDEAD;
+		}
+
+		if( aux2_sensor != 0 )
+		{
+			Aux_2_Sensor_A_Tick = 0xDEAD;
+			Aux_2_Sensor_B_Tick = 0xDEAD;
+		}
+
+		return;
+	}
+}
+
+void TIM6_DAC_IRQHandler()
+{
+    TIM6->SR &= ~TIM_SR_UIF;   // interrupt has been handled
+
+    Timer6_Tick += 1;
+
+	if( Timing_Active == 1 )
+	{
+		if( Menu_Array[ AUX_1_CONFIG ].sub_context_2 == INFRARED )
+		{
+			// if beam was tripped make sure to wait before scanning again while target moves through the beam
+			if( Aux_1_Rescan_Delay > 0 )
+			{
+				Aux_1_Rescan_Delay -= 1;
+			}
+			else if( Aux_1_Sensor_A_Tick == 0 )
+			{
+				if( (GPIOB->IDR & 0x0100) == 0 )
+					Aux_1_Infrared_Poll += 1;
+				else
+					Aux_1_Infrared_Poll = 0;
+
+				if( Aux_1_Infrared_Poll > 100 )	// Polling is bad, should only be for 65 times, need to create a hardware interrupt
+				{
+					Aux_1_Speed_Tick_Delta = 0;
+
+					TIM2->CNT = 0;
+					TIM2->CR1 &= ~TIM_CR1_CEN;
+
+					TIM_ITConfig( TIM4, TIM_IT_CC2 | TIM_IT_CC3, ENABLE );
+
+					Aux_1_Infrared_Poll = 0;
+					Aux_1_Lap_Counter	+= 1;
+					Aux_1_Rescan_Delay	= SENSOR_RESCAN_DELAY; // wait two seconds before scanning again
+
+					if( Aux_1_Lap_Counter > Menu_Array[ AUX_1_CONFIG ].sub_context_3 )
+					{
+						Aux_1_Sensor_A_Tick = Timer6_Tick;
+						Aux_1_Rescan_Delay = 0;
+					}
+				}
+			}
+		}
+		else
+		{
+			// read all the auxililary inputs and save their times for later use for recording time and/or speed
+			// if it is zero it can be set, if it's not? then it can't be changed until it's value is used and reset
+			if( (GPIOB->IDR & 0x0080) == 0 && Aux_1_Sensor_A_Tick == 0 ) // Blue(DC+) & Blue stripe(DC-)
+			{
+				Aux_1_Sensor_A_Tick = Timer6_Tick;
+			}
+			if( (GPIOB->IDR & 0x0100) == 0 && Aux_1_Sensor_B_Tick == 0 ) // Orange(DA-) & Orange stripe(DA+)
+			{
+				Aux_1_Sensor_B_Tick = Timer6_Tick;
+			}
+		}
+
+		if( Menu_Array[ AUX_2_CONFIG ].sub_context_2 == INFRARED )
+		{
+			// if beam was tripped make sure to wait before scanning again while target moves through the beam
+			if( Aux_2_Rescan_Delay > 0 )
+			{
+				Aux_2_Rescan_Delay -= 1;
+			}
+			else if( Aux_2_Sensor_A_Tick == 0 )
+			{
+				if( (GPIOB->IDR & 0x0020) == 0 )
+					Aux_2_Infrared_Poll += 1;
+				else
+					Aux_2_Infrared_Poll = 0;
+
+				if( Aux_2_Infrared_Poll > 100 )	// Polling is bad, should only be for 65 times, need to create a hardware interrupt
+				{
+					Aux_2_Speed_Tick_Delta = 0;
+
+					TIM5->CNT = 0;
+					TIM5->CR1 &= ~TIM_CR1_CEN;
+
+					TIM_ITConfig( TIM3, TIM_IT_CC1 | TIM_IT_CC2, ENABLE );
+
+					Aux_2_Infrared_Poll = 0;
+					Aux_2_Lap_Counter	+= 1;
+					Aux_2_Rescan_Delay	= SENSOR_RESCAN_DELAY; // wait two seconds before scanning again
+
+					if( Aux_2_Lap_Counter > Menu_Array[ AUX_2_CONFIG ].sub_context_3 )
+					{
+						Aux_2_Sensor_A_Tick = Timer6_Tick;
+						Aux_2_Rescan_Delay = 0;
+					}
+				}
+			}
+		}
+		else
+		{
+			if( (GPIOB->IDR & 0x0010) == 0 && Aux_2_Sensor_A_Tick == 0 ) // Blue(DC+) & Blue stripe(DC-)
+			{
+				Aux_2_Sensor_A_Tick = Timer6_Tick;
+			}
+			if( (GPIOB->IDR & 0x0020) == 0 && Aux_2_Sensor_B_Tick == 0 ) // Orange(DA-) & Orange stripe(DA+)
+			{
+				Aux_2_Sensor_B_Tick = Timer6_Tick;
+			}
+		}
+	}
+
+	// handle dropping the gate
+	if( Pulse_Solenoid == 1 )
+	{
+		if( Gate_Drop_Delay > 0 )
+		{
+			Gate_Drop_Delay -= 1;
+		}
+		else
+		{
+			// handle keeping the gate power on only for a limited time when controlling a solenoid
+			if( Solenoid_Pulse_Time > 0 )
+			{
+				Solenoid_Pulse_Time -= 1;
+
+				SetGatePowerOn();
+			}
+			else
+			{
+				SetGatePowerOff();
+
+				Pulse_Solenoid = 0;
+			}
+		}
+	}
+	else if( Gate_Power_Off_Pending == 1 )
+	{
+		if( Gate_Drop_Delay > 0 )
+		{
+			Gate_Drop_Delay -= 1;
+		}
+		else
+		{
+			// both an electromagnet and an air ram drop the gate from here
+			SetGatePowerOff();
+
+			// once the gate drops for the air ram start elapsing the delay for the anti-slam feature if enabled
+			if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM && Menu_Array[ ANTI_SLAM ].sub_context_1 == ANTI_SLAM_ENABLED )
+			{
+				// initialize all the global variables for the very first time right after the gate has started to drop
+				if( Anti_Slam_Active == 0 )
+				{
+					Anti_Slam_Active 	   = 1;
+					Anti_Slam_Start_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_2;
+					Anti_Slam_Pulse_Width  = Menu_Array[ ANTI_SLAM ].sub_context_3;
+				}
+			}
+		}
+	}
+
+	// handle pulse generation for the anti-slam feature
+	if( Menu_Array[ ANTI_SLAM ].sub_context_1 == ANTI_SLAM_ENABLED && Anti_Slam_Active == 1 )
+	{
+		if( Anti_Slam_Start_Delay > 0 )
+		{
+			Anti_Slam_Start_Delay -= 1;
+		}
+		else if( Anti_Slam_Pulse_Width > 0 )
+		{
+			Anti_Slam_Pulse_Width -= 1;
+
+			if( Anti_Slam_Gate_Up == 0 )
+			{
+				Anti_Slam_Gate_Up = 1;
+
+				SetGatePowerOn();
+			}
+		}
+		else
+		{
+			// all manipulation of the air ram from the anti-slam feature is complete
+			Anti_Slam_Gate_Up = 0;
+			Anti_Slam_Active  = 0;
+
+			SetGatePowerOff();
+		}
+	}
+
+	// make sure not to abort once the lights and tones actually start
+	if( Pulse_Solenoid == 1 || Gate_Power_Off_Pending == 1 ) return;
+
+	// abort if any button is pressed only when in drop gate state
+	if( Dropping_Gate == 1 && Cadence_Cancelled == 0 && Anti_Slam_Active == 0 )
+	{
+		if( (GPIOE->IDR & 0x0010) == 0 || ( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED &&
+										  ((GPIOA->IDR & 0x0001) || (GPIOB->IDR & 0x4000) || (GPIOB->IDR & 0x8000) || (GPIOD->IDR & 0x0100))) )
+		{
+			Cadence_Cancelled = 1;
+
+			if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
+			{
+				Pulse_Solenoid	 	= 0;
+				Solenoid_Pulse_Time = 0;
+			}
+
+			return;
+		}
+	}
 }
 
 void InitAudio( void )
@@ -5139,273 +5740,6 @@ void UpdateLCD( void )
 			WriteLCD_Command( 0xC0 + 1 + i );
 		}
 	}
-}
-
-void StartTimers( void )
-{
-	// timer 6
-    RCC->APB1ENR	|= RCC_APB1ENR_TIM6EN;  	// Enable TIM6 clock
-
-    //TIM6->PSC		= 8399;                		// 84,000,000 Hz / 8,400 = 10,000 timer ticks per second
-    TIM6->PSC		= 839;                		// 84,000,000 Hz / 8,40 = 100,000 timer ticks per second // 10KHz
-    //TIM6->PSC		= 419;                		// 20 KHz
-    //TIM6->PSC		= 83;                		// 100 KHz (1 MHz)
-    TIM6->ARR		= 9;                   		// 10,000 Hz / 10 = 1000 timer ints per second
-
-    //TIM6->CR1		|= TIM_CR1_OPM;             // One pulse mode
-    TIM6->EGR		|= TIM_EGR_UG;              // Force update
-    TIM6->SR		&= ~TIM_SR_UIF;             // Clear the update flag
-    TIM6->DIER		|= TIM_DIER_UIE;            // Enable interrupt on update event
-    NVIC_EnableIRQ(TIM6_DAC_IRQn);              // Enable TIM6 IRQ
-    TIM6->CR1 		|= TIM_CR1_CEN;             // Enable TIM6 counter
-
-    Timer6_Tick = 0;
-
-    // timer 7
-    RCC->APB1ENR	|= RCC_APB1ENR_TIM7EN;  	// Enable TIM7 clock
-
-    TIM7->PSC		= 839;                		// 84,000,000 Hz / 8,40 = 100,000 timer ticks per second
-    TIM7->ARR		= 9;                   		// 10,000 Hz / 10 = 1000 timer ints per second
-    TIM7->EGR		|= TIM_EGR_UG;              // Force update
-    TIM7->SR		&= ~TIM_SR_UIF;             // Clear the update flag
-    TIM7->DIER		|= TIM_DIER_UIE;            // Enable interrupt on update event
-    NVIC_EnableIRQ(TIM7_IRQn);  	            // Enable TIM7 IRQ
-    TIM7->CR1 		|= TIM_CR1_CEN;             // Enable TIM7 counter
-}
-
-void TIM7_IRQHandler()
-{
-    TIM7->SR &= ~TIM_SR_UIF;   // interrupt has been handled
-
-    if( Start_Reaction_Timing == 0 ) return;
-
-	if( Gate_Drop_Delay != 0 )
-	{
-		Gate_Drop_Delay -= 1;
-
-		unsigned int aux1_sensor = (Aux_1_Sensor_A_Tick | Aux_1_Sensor_B_Tick);
-		unsigned int aux2_sensor = (Aux_2_Sensor_A_Tick | Aux_2_Sensor_B_Tick);
-
-		// used by reaction game
-		if( aux1_sensor != 0 )
-		{
-			Aux_1_Sensor_A_Tick = 0xDEAD;
-			Aux_1_Sensor_B_Tick = 0xDEAD;
-		}
-
-		if( aux2_sensor != 0 )
-		{
-			Aux_2_Sensor_A_Tick = 0xDEAD;
-			Aux_2_Sensor_B_Tick = 0xDEAD;
-		}
-
-		return;
-	}
-}
-
-void TIM6_DAC_IRQHandler()
-{
-    TIM6->SR &= ~TIM_SR_UIF;   // interrupt has been handled
-
-    Timer6_Tick += 1;
-
-	if( Timing_Active == 1 )
-	{
-		if( Menu_Array[ AUX_1_CONFIG ].sub_context_2 == INFRARED )
-		{
-			// if beam was tripped make sure to wait before scanning again while target moves through the beam
-			if( Aux_1_Rescan_Delay > 0 )
-			{
-				Aux_1_Rescan_Delay -= 1;
-			}
-			else if( Aux_1_Sensor_A_Tick == 0 )
-			{
-				if( (GPIOB->IDR & 0x0100) == 0 )
-					Aux_1_Infrared_Poll += 1;
-				else
-					Aux_1_Infrared_Poll = 0;
-
-				if( Aux_1_Infrared_Poll > 100 )	// Polling is bad, should only be for 65 times, need to create a hardware interrupt
-				{
-					Aux_1_Infrared_Poll = 0;
-					Aux_1_Lap_Counter	+= 1;
-					Aux_1_Rescan_Delay	= SENSOR_RESCAN_DELAY; // wait two seconds before scanning again
-
-					if( Aux_1_Lap_Counter > Menu_Array[ AUX_1_CONFIG ].sub_context_3 )
-					{
-						Aux_1_Sensor_A_Tick = Timer6_Tick;
-						Aux_1_Rescan_Delay = 0;
-					}
-				}
-			}
-		}
-		else
-		{
-			// read all the auxililary inputs and save their times for later use for recording time and/or speed
-			// if it is zero it can be set, if it's not? then it can't be changed until it's value is used and reset
-			if( (GPIOB->IDR & 0x0080) == 0 && Aux_1_Sensor_A_Tick == 0 ) // Blue(DC+) & Blue stripe(DC-)
-			{
-				Aux_1_Sensor_A_Tick = Timer6_Tick;
-			}
-			if( (GPIOB->IDR & 0x0100) == 0 && Aux_1_Sensor_B_Tick == 0 ) // Orange(DA-) & Orange stripe(DA+)
-			{
-				Aux_1_Sensor_B_Tick = Timer6_Tick;
-			}
-		}
-
-		if( Menu_Array[ AUX_2_CONFIG ].sub_context_2 == INFRARED )
-		{
-			// if beam was tripped make sure to wait before scanning again while target moves through the beam
-			if( Aux_2_Rescan_Delay > 0 )
-			{
-				Aux_2_Rescan_Delay -= 1;
-			}
-			else if( Aux_2_Sensor_A_Tick == 0 )
-			{
-				if( (GPIOB->IDR & 0x0020) == 0 )
-					Aux_2_Infrared_Poll += 1;
-				else
-					Aux_2_Infrared_Poll = 0;
-
-				if( Aux_2_Infrared_Poll > 100 )	// Polling is bad, should only be for 65 times, need to create a hardware interrupt
-				{
-					Aux_2_Infrared_Poll = 0;
-					Aux_2_Lap_Counter	+= 1;
-					Aux_2_Rescan_Delay	= SENSOR_RESCAN_DELAY; // wait two seconds before scanning again
-
-					if( Aux_2_Lap_Counter > Menu_Array[ AUX_2_CONFIG ].sub_context_3 )
-					{
-						Aux_2_Sensor_A_Tick = Timer6_Tick;
-						Aux_2_Rescan_Delay = 0;
-					}
-				}
-			}
-		}
-		else
-		{
-			if( (GPIOB->IDR & 0x0010) == 0 && Aux_2_Sensor_A_Tick == 0 ) // Blue(DC+) & Blue stripe(DC-)
-			{
-				Aux_2_Sensor_A_Tick = Timer6_Tick;
-			}
-			if( (GPIOB->IDR & 0x0020) == 0 && Aux_2_Sensor_B_Tick == 0 ) // Orange(DA-) & Orange stripe(DA+)
-			{
-				Aux_2_Sensor_B_Tick = Timer6_Tick;
-			}
-		}
-	}
-
-	// handle dropping the gate
-	if( Pulse_Solenoid == 1 )
-	{
-		if( Gate_Drop_Delay > 0 )
-		{
-			Gate_Drop_Delay -= 1;
-		}
-		else
-		{
-			// handle keeping the gate power on only for a limited time when controlling a solenoid
-			if( Solenoid_Pulse_Time > 0 )
-			{
-				Solenoid_Pulse_Time -= 1;
-
-				SetGatePowerOn();
-			}
-			else
-			{
-				SetGatePowerOff();
-
-				Pulse_Solenoid = 0;
-			}
-		}
-	}
-	else if( Gate_Power_Off_Pending == 1 )
-	{
-		if( Gate_Drop_Delay > 0 )
-		{
-			Gate_Drop_Delay -= 1;
-		}
-		else
-		{
-			// both an electromagnet and an air ram drop the gate from here
-			SetGatePowerOff();
-
-			// once the gate drops for the air ram start elapsing the delay for the anti-slam feature if enabled
-			if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM && Menu_Array[ ANTI_SLAM ].sub_context_1 == ANTI_SLAM_ENABLED )
-			{
-				// initialize all the global variables for the very first time right after the gate has started to drop
-				if( Anti_Slam_Active == 0 )
-				{
-					Anti_Slam_Active 	   = 1;
-					Anti_Slam_Start_Delay  = Menu_Array[ ANTI_SLAM ].sub_context_2;
-					Anti_Slam_Pulse_Width  = Menu_Array[ ANTI_SLAM ].sub_context_3;
-				}
-			}
-		}
-	}
-
-	// handle pulse generation for the anti-slam feature
-	if( Menu_Array[ ANTI_SLAM ].sub_context_1 == ANTI_SLAM_ENABLED && Anti_Slam_Active == 1 )
-	{
-		if( Anti_Slam_Start_Delay > 0 )
-		{
-			Anti_Slam_Start_Delay -= 1;
-		}
-		else if( Anti_Slam_Pulse_Width > 0 )
-		{
-			Anti_Slam_Pulse_Width -= 1;
-
-			if( Anti_Slam_Gate_Up == 0 )
-			{
-				Anti_Slam_Gate_Up = 1;
-
-				SetGatePowerOn();
-			}
-		}
-		else
-		{
-			// all manipulation of the air ram from the anti-slam feature is complete
-			Anti_Slam_Gate_Up = 0;
-			Anti_Slam_Active  = 0;
-
-			SetGatePowerOff();
-		}
-	}
-
-	// make sure not to abort once the lights and tones actually start
-	if( Pulse_Solenoid == 1 || Gate_Power_Off_Pending == 1 ) return;
-
-	// abort if any button is pressed only when in drop gate state
-	if( Dropping_Gate == 1 && Cadence_Cancelled == 0 && Anti_Slam_Active == 0 )
-	{
-		if( (GPIOE->IDR & 0x0010) == 0 || ( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED &&
-										  ((GPIOA->IDR & 0x0001) || (GPIOB->IDR & 0x4000) || (GPIOB->IDR & 0x8000) || (GPIOD->IDR & 0x0100))) )
-		{
-			Cadence_Cancelled = 1;
-
-			if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
-			{
-				Pulse_Solenoid	 	= 0;
-				Solenoid_Pulse_Time = 0;
-			}
-
-			return;
-		}
-	}
-}
-
-void SysTick_Init( void )
-{
-	// enable hardware directly
-	ADDR_SYST_RVR[0] = 167; // CPU Speed of 168MHz / 168 - 1 = 1MHz (0 - 167)
-	ADDR_SYST_CVR[0] = 0;
-	ADDR_SYST_CSR[0] = ADDR_SYST_CSR[0] | 0b00000000000000000000000000000111;
-
-	SystemTick = 0;
-}
-
-void SysTick_Handler( void )
-{
-	SystemTick++;
 }
 
 void PulseSolenoid( const unsigned int pulse_time )
@@ -6198,7 +6532,7 @@ void InitMenus( void )
 	ClearContexts( AUX_1_CONFIG );
 	Menu_Array[ AUX_1_CONFIG ].menu_type	 = EDIT_CHOICE;
 	Menu_Array[ AUX_1_CONFIG ].context 		 = AUX_DISABLED;
-	Menu_Array[ AUX_1_CONFIG ].sub_context_1 = 16;
+	Menu_Array[ AUX_1_CONFIG ].sub_context_1 = 12 * 16 * 625;
 	Menu_Array[ AUX_1_CONFIG ].item_count 	 = 10;
 	Menu_Array[ AUX_1_CONFIG ].current_item	 = 1;
 	SetMenuText( Menu_Array[ AUX_1_CONFIG ].caption, "AUXILIARY 1" );
@@ -6219,7 +6553,7 @@ void InitMenus( void )
 	ClearContexts( AUX_2_CONFIG );
 	Menu_Array[ AUX_2_CONFIG ].menu_type	 = EDIT_CHOICE;
 	Menu_Array[ AUX_2_CONFIG ].context 		 = AUX_DISABLED;
-	Menu_Array[ AUX_2_CONFIG ].sub_context_1 = 16;
+	Menu_Array[ AUX_2_CONFIG ].sub_context_1 = 12 * 16 * 625;
 	Menu_Array[ AUX_2_CONFIG ].item_count 	 = 10;
 	Menu_Array[ AUX_2_CONFIG ].current_item	 = 1;
 	SetMenuText( Menu_Array[ AUX_2_CONFIG ].caption, "AUXILIARY 2" );
