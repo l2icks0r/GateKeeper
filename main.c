@@ -18,10 +18,10 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-#define SPLASH_TEXT
-#define CADENCE
-#define NUMBERS
-#define MEASURE_BATTERY
+//#define SPLASH_TEXT
+//#define CADENCE
+//#define NUMBERS
+//#define MEASURE_BATTERY
 //#define BATTERY_LOG
 
 #include "TextStrings.h"
@@ -163,7 +163,9 @@ void StartGatePowerOffTimer( void );
 
 // directly set gate ports
 void SetGatePowerOff( void );
-void SetGatePowerOn( void );
+void SetGatePowerOn ( void );
+void SetGatePowerUpProGate	( void );
+void SetGatePowerDownProGate( void );
 
 // reaction game
 void DoReactionGame( const unsigned int player_count );
@@ -267,7 +269,7 @@ enum AUX_OPTIONS				{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SP
 enum REACTION_GAME_OPTIONS		{ REACTION_GAME_ONE_PLAYER = 1, REACTION_GAME_TWO_PLAYER = 2, REACTION_GAME_VIEW_STATS = 3, REACTION_GAME_CLEAR_STATS = 4 };
 enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNCE_TIMES_ENABLED = 2 };
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
-enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
+enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3, RELEASE_DEVICE_PROGATE = 4 };
 enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_RED = 2, TEST_LIGHTS_AMBER1 = 3, TEST_LIGHTS_AMBER2 = 4, TEST_LIGHTS_GREEN = 5, TEST_LIGHTS_UP_DOWN = 6, TEST_LIGHTS_DARK_LIGHT = 7, TEST_LIGHTS_RANDOM = 8 };
 enum ANTI_SLAM_OPTIONS			{ ANTI_SLAM_DISABLED = 1, ANTI_SLAM_ENABLED = 2, ANTI_SLAM_RAISE_GATE = 3, ANTI_SLAM_DROP_GATE = 4, ANTI_SLAM_START_DELAY = 5, ANTI_SLAM_PULSE_WIDTH = 6, ANTI_SLAM_INCREMENT = 7 };
 
@@ -340,7 +342,7 @@ struct TIMING_DEFINITION
 #define ADDR_SYST_RVR ((uint32_t *)0xE000E014) // address of SysTick Relload Value Register
 #define ADDR_SYST_CVR ((uint32_t *)0xE000E018) // address of SysTick Current Value Register
 
-#define UUID_VALIDATE_CHECKS  15
+#define UUID_VALIDATE_CHECKS  5
 
 // define actual hardware memory addresses to read/write from flash (sector 1)
 #define FLASH_SAVE_MEMORY_START 0x08004000
@@ -466,6 +468,9 @@ int main( void )
 
 	StartTimers(); // system ticks
 
+//	while( 1 ) LightTestCycle( 0 );
+
+
 	InitLCD();
 
 	InitTextStrings();
@@ -495,6 +500,15 @@ int main( void )
 
 	SetGateMenuState();
 
+/*
+	SetGatePowerUpProGate();
+
+	SetGatePowerDownProGate();
+	SetGatePowerUpProGate();
+	SetGatePowerDownProGate();
+
+	SetGatePowerOff();
+*/
 
 	// called to ignore first result which is false
 	ReadInputs( & inputs, 1 );
@@ -695,7 +709,7 @@ int main( void )
 										Menu_Index = ENERGIZE_MAGNET;
 									}
 								}
-								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+								else if( (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM) || (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE) )
 								{
 									if( Menu_Index == DROP_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
@@ -719,7 +733,7 @@ int main( void )
 										Menu_Index = GATE_DROPS_ON;
 									}
 								}
-								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+								else if( (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM) || (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE) )
 								{
 									if( Menu_Index == DROP_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
@@ -746,7 +760,7 @@ int main( void )
 										Menu_Index = DROP_GATE;
 									}
 								}
-								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+								else if( (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM) || (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE) )
 								{
 									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
@@ -770,7 +784,7 @@ int main( void )
 										Menu_Index = GATE_DROPS_ON;
 									}
 								}
-								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+								else if( (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM) || (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE) )
 								{
 									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
@@ -803,7 +817,7 @@ int main( void )
 						{
 							Menu_Index = WIRELESS_REMOTE;
 						}
-						else if( Menu_Index == ANTI_SLAM && Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM )
+						else if( Menu_Index == ANTI_SLAM && ((Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM) || (Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_PROGATE) ) )
 						{
 							if( Gate_Power_State == POWER_ON )
 							{
@@ -1023,7 +1037,10 @@ int main( void )
 
 							PlayGateUpTones();
 
-							SetGatePowerOn();
+							if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE )
+								SetGatePowerUpProGate();
+							else
+								SetGatePowerOn();
 
 							PlayRaiseGateAnimation();
 
@@ -2616,6 +2633,7 @@ int main( void )
 										case 1: { Menu_Array[ RELEASE_DEVICE ].context = RELEASE_DEVICE_SOLENOID;	break;	}
 										case 2: { Menu_Array[ RELEASE_DEVICE ].context = RELEASE_DEVICE_MAGNET;		break;	}
 										case 3: { Menu_Array[ RELEASE_DEVICE ].context = RELEASE_DEVICE_AIR_RAM;	break;	}
+										case 4: { Menu_Array[ RELEASE_DEVICE ].context = RELEASE_DEVICE_PROGATE;	break;	}
 									}
 
 									continue;
@@ -2702,7 +2720,10 @@ int main( void )
 								}
 								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_RAISE_GATE )
 								{
-									SetGatePowerOn();
+									if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE )
+										SetGatePowerUpProGate();
+									else
+										SetGatePowerOn();
 								}
 								else if( Menu_Array[ ANTI_SLAM ].context == ANTI_SLAM_DROP_GATE )
 								{
@@ -3293,7 +3314,7 @@ void DropGate( int test )
 		{
 			StartGatePowerOffTimer();  // gate power turned off after Gate_Drop_Delay processed by interrupt 6
 		}
-		else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+		else if( (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM) || ( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE ) )
 		{
 			StartGatePowerOffTimer();  // gate turned off after Gate_Drop_Delay processed by interrupt 6
 
@@ -3382,6 +3403,9 @@ void DropGate( int test )
 		}
 #endif
 	}
+
+	if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE )
+		SetGatePowerOff();
 
 	Dropping_Gate = 0;
 }
@@ -5219,6 +5243,7 @@ void TIM6_DAC_IRQHandler()
 				{
 					Aux_1_Speed_Tick_Delta = 0;
 
+					// todo: WTF is this doing here? move input capture to statement block below
 					TIM2->CNT = 0;
 					TIM2->CR1 &= ~TIM_CR1_CEN;
 
@@ -5330,11 +5355,15 @@ void TIM6_DAC_IRQHandler()
 		}
 		else
 		{
-			// both an electromagnet and an air ram drop the gate from here
-			SetGatePowerOff();
+			// electromagnet, air ram, and Pro-Gate drop the gate from here
+			if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE )
+				SetGatePowerDownProGate();
+			else
+				SetGatePowerOff();
 
 			// once the gate drops for the air ram start elapsing the delay for the anti-slam feature if enabled
-			if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM && Menu_Array[ ANTI_SLAM ].sub_context_1 == ANTI_SLAM_ENABLED )
+			if( (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM || Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE ) &&
+				 Menu_Array[ ANTI_SLAM ].sub_context_1 == ANTI_SLAM_ENABLED )
 			{
 				// initialize all the global variables for the very first time right after the gate has started to drop
 				if( Anti_Slam_Active == 0 )
@@ -5362,7 +5391,10 @@ void TIM6_DAC_IRQHandler()
 			{
 				Anti_Slam_Gate_Up = 1;
 
-				SetGatePowerOn();
+				if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE )
+					SetGatePowerUpProGate();
+				else
+					SetGatePowerOn();
 			}
 		}
 		else
@@ -5371,7 +5403,10 @@ void TIM6_DAC_IRQHandler()
 			Anti_Slam_Gate_Up = 0;
 			Anti_Slam_Active  = 0;
 
-			SetGatePowerOff();
+			if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE )
+				SetGatePowerDownProGate();
+			else
+				SetGatePowerOff();
 		}
 	}
 
@@ -5760,8 +5795,10 @@ void StartGatePowerOffTimer( void )
 
 void SetGatePowerOff( void )
 {
-	GPIO_ResetBits( GPIOA, GPIO_Pin_2 ); // gate 1 OFF
-	GPIO_ResetBits( GPIOA, GPIO_Pin_1 ); // gate 2 OFF
+	GPIO_ResetBits( GPIOC, GPIO_Pin_5 ); // (GUP) low
+
+	GPIO_ResetBits( GPIOA, GPIO_Pin_2 ); // (G1A) gate 1 OFF
+	GPIO_ResetBits( GPIOA, GPIO_Pin_1 ); // (G2A) gate 2 OFF
 
 	Gate_Power_State 	   	= POWER_OFF;
 	Gate_Power_Off_Pending 	= 0;
@@ -5769,10 +5806,36 @@ void SetGatePowerOff( void )
 
 void SetGatePowerOn( void )
 {
-	GPIO_SetBits( GPIOA, GPIO_Pin_2 );	// gate 1 ON
-	GPIO_SetBits( GPIOA, GPIO_Pin_1 );	// gate 2 ON
+	GPIO_SetBits( GPIOA, GPIO_Pin_2 );	// (G1A) gate 1 ON
+	GPIO_SetBits( GPIOA, GPIO_Pin_1 );	// (G2A) gate 2 ON
 
 	Gate_Power_State 		= POWER_ON;
+	Gate_Power_Off_Pending 	= 0;
+}
+
+void SetGatePowerUpProGate( void )
+{
+	// Raise gate ports 1 & 2
+	GPIO_SetBits( GPIOC, GPIO_Pin_2 );	 // (G1M) high
+	GPIO_SetBits( GPIOC, GPIO_Pin_1 );	 // (G2M) high
+	GPIO_ResetBits( GPIOC, GPIO_Pin_5 ); // (GUP) low
+	GPIO_SetBits( GPIOA, GPIO_Pin_2 );	 // (G1A) high
+	GPIO_SetBits( GPIOA, GPIO_Pin_1 );	 // (G2A) high
+
+	Gate_Power_State 		= POWER_ON;
+	Gate_Power_Off_Pending 	= 0;
+}
+
+void SetGatePowerDownProGate( void )
+{
+	// Drop gate ports 1 & 2
+	GPIO_SetBits( GPIOC, GPIO_Pin_2 );	 // (G1M) high
+	GPIO_SetBits( GPIOC, GPIO_Pin_1 );	 // (G2M) high
+	GPIO_ResetBits( GPIOA, GPIO_Pin_2 ); // (G1A) low
+	GPIO_ResetBits( GPIOA, GPIO_Pin_1 ); // (G2A) low
+	GPIO_SetBits( GPIOC, GPIO_Pin_5 );   // (GUP) high
+
+	Gate_Power_State 	   	= POWER_OFF;
 	Gate_Power_Off_Pending 	= 0;
 }
 
@@ -6681,13 +6744,14 @@ void InitMenus( void )
 	ClearContexts( RELEASE_DEVICE );
 	Menu_Array[ RELEASE_DEVICE ].menu_type	  = EDIT_CHOICE;
 	Menu_Array[ RELEASE_DEVICE ].context	  = RELEASE_DEVICE_SOLENOID;
-	Menu_Array[ RELEASE_DEVICE ].item_count	  = 3;
+	Menu_Array[ RELEASE_DEVICE ].item_count	  = 4;
 	Menu_Array[ RELEASE_DEVICE ].current_item = RELEASE_DEVICE_SOLENOID;
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].caption, "RELEASE DEVICE" );
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ 0 ], SPACES );
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_SOLENOID ], "\1 Solenoid \2" );
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_MAGNET	], "\1 Magnet \2"	);
 	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_AIR_RAM	], "\1 Air Ram \2"	);
+	SetMenuText( Menu_Array[ RELEASE_DEVICE ].item[ RELEASE_DEVICE_PROGATE	], "\1 Pro-Gate \2"	);
 	ItemCopy( RELEASE_DEVICE, Menu_Array[ RELEASE_DEVICE ].context, 0, 1 );
 
 	Menu_Array[ ANTI_SLAM ].menu_type	  = EDIT_CHOICE;
@@ -6715,7 +6779,7 @@ void InitMenus( void )
 
 void SetGateMenuState( void )
 {
-	if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
+	if( (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM) || ( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE ) )
 	{
 		if( Gate_Power_State == POWER_OFF )
 			Menu_Index = RAISE_GATE;
