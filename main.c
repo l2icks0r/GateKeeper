@@ -18,10 +18,10 @@
 #include "codec.h"
 #include "stm32f4xx_flash.h"
 
-//#define SPLASH_TEXT
-//#define CADENCE
-//#define NUMBERS
-//#define MEASURE_BATTERY
+#define SPLASH_TEXT
+#define CADENCE
+#define NUMBERS
+#define MEASURE_BATTERY
 //#define BATTERY_LOG
 
 #include "TextStrings.h"
@@ -468,9 +468,6 @@ int main( void )
 
 	StartTimers(); // system ticks
 
-//	while( 1 ) LightTestCycle( 0 );
-
-
 	InitLCD();
 
 	InitTextStrings();
@@ -499,16 +496,6 @@ int main( void )
 	static int inputs = 0;
 
 	SetGateMenuState();
-
-/*
-	SetGatePowerUpProGate();
-
-	SetGatePowerDownProGate();
-	SetGatePowerUpProGate();
-	SetGatePowerDownProGate();
-
-	SetGatePowerOff();
-*/
 
 	// called to ignore first result which is false
 	ReadInputs( & inputs, 1 );
@@ -817,9 +804,13 @@ int main( void )
 						{
 							Menu_Index = WIRELESS_REMOTE;
 						}
-						else if( Menu_Index == ANTI_SLAM && ((Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM) || (Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_PROGATE) ) )
+						else if( Menu_Index == ANTI_SLAM )
 						{
-							if( Gate_Power_State == POWER_ON )
+							if( (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM) || (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_PROGATE) )
+							{
+								Menu_Index = ANTI_SLAM;
+							}
+							else if( Gate_Power_State == POWER_ON )
 							{
 								Menu_Index = WIRELESS_REMOTE;
 							}
@@ -828,7 +819,6 @@ int main( void )
 								Menu_Index = RELEASE_DEVICE;
 							}
 						}
-
 
 						// if the encoder wheel moved then display the new menu text
 						if( encoder_delta != 0 )
@@ -2145,7 +2135,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 1 );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -2399,7 +2389,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 1 );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -2677,7 +2667,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 1 );
+								{	encoder_delta = ReadInputs( &inputs, 0 );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -4785,10 +4775,10 @@ void InitPorts( void )
 	GPIO_Init( GPIOB, &GPIO_InitStructure );
 
 	// setup input capture pins to timers for auxiliary ports
-//	GPIO_PinAFConfig( GPIOB, GPIO_PinSource4, GPIO_AF_TIM3 );
-//	GPIO_PinAFConfig( GPIOB, GPIO_PinSource5, GPIO_AF_TIM3 );
-//	GPIO_PinAFConfig( GPIOB, GPIO_PinSource7, GPIO_AF_TIM4 );
-//	GPIO_PinAFConfig( GPIOB, GPIO_PinSource8, GPIO_AF_TIM4 );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource4, GPIO_AF_TIM3 );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource5, GPIO_AF_TIM3 );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource7, GPIO_AF_TIM4 );
+	GPIO_PinAFConfig( GPIOB, GPIO_PinSource8, GPIO_AF_TIM4 );
 
 	// remote buttons, audio in detect, battery
 	GPIO_InitStructure.GPIO_Pin		= GPIO_Pin_0 | GPIO_Pin_1 | GPIO_Pin_14 | GPIO_Pin_15;
@@ -5018,6 +5008,7 @@ void StartTimers( void )
 	TIM_Cmd( TIM3, ENABLE );
 	TIM_Cmd( TIM4, ENABLE );
 
+
 	// timer 6
     RCC->APB1ENR	|= RCC_APB1ENR_TIM6EN;  	// Enable timer 6 clock
 
@@ -5026,6 +5017,7 @@ void StartTimers( void )
     TIM6->EGR		|= TIM_EGR_UG;              // Force update
     TIM6->SR		&= ~TIM_SR_UIF;             // Clear the update flag
     TIM6->DIER		|= TIM_DIER_UIE;            // Enable interrupt on update event
+
 
 	NVIC_InitStructure.NVIC_IRQChannel 			 		 = TIM6_DAC_IRQn;
 	NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
