@@ -2174,7 +2174,7 @@ int main( void )
 
 									// read controls
 									do
-									{	encoder_delta = ReadInputs( &inputs, 1 );
+									{	encoder_delta = ReadInputs( &inputs, 0 );
 
 									} while (encoder_delta == 0 && inputs == 0 );
 
@@ -2261,7 +2261,7 @@ int main( void )
 
 									// read controls
 									do
-									{	encoder_delta = ReadInputs( &inputs, 1 );
+									{	encoder_delta = ReadInputs( &inputs, 0 );
 
 										abort_cycle = LightTestCycle( 1 );
 
@@ -2287,7 +2287,7 @@ int main( void )
 
 									do
 									{
-										encoder_delta = ReadInputs( &inputs, 1 );
+										encoder_delta = ReadInputs( &inputs, 0 );
 
 										theta += 0.0135f;
 										on_time = 0.5f * period - 0.5f * period * sin( theta );
@@ -2328,7 +2328,7 @@ int main( void )
 
 									do
 									{
-										encoder_delta = ReadInputs( &inputs, 1 );
+										encoder_delta = ReadInputs( &inputs, 0 );
 
 										red_theta		+=  0.0125f;
 										amber1_theta	+=  0.0225f;
@@ -3786,7 +3786,7 @@ void ReadLightExitControlInput( int light_context )
 	{
 		// read controls
 		do
-		{	encoder_delta = ReadInputs( &inputs, 1 );
+		{	encoder_delta = ReadInputs( &inputs, 0 );
 
 		} while (encoder_delta == 0 && inputs == 0 );
 
