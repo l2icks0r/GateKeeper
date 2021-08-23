@@ -6,20 +6,20 @@
 
 void InitTextStrings( void )
 {
-	DecryptString( Splash_Text_0,	 		splash_text_0 			); 	// ** RRP BMX GATES **
-	DecryptString( Splash_Text_1,	 		splash_text_1 			); 	// Epicenter v0.9.5
+	DecryptString( Splash_Text_0,	 		splash_text_0 			);
+	DecryptString( Splash_Text_1,	 		splash_text_1 			);
 
-	DecryptString( Device_Information,		device_information 		);	// -Device Information-
-	DecryptString( Ownership_Information, 	ownership_information 	); 	// ...
+	DecryptString( Device_Information,		device_information 		);
+	DecryptString( Ownership_Information, 	ownership_information 	);
 
-	DecryptString( Design_By,				design_by 				);	// Epicenter design by:
-	DecryptString( Designer_Information, 	designer_information 	); 	// Richard E. Saenz Jr.
+	DecryptString( More_Info,				more_info 				);
+	DecryptString( Email_Address,		 	email_address		 	);
 
-	DecryptString( Unauthorized_Device, 	unauthorized_device 	);	// Unauthorized Device
-	DecryptString( Illegal_Counterfeit, 	illegal_counterfeit 	);	// Illegal counterfeit
+	DecryptString( Unauthorized_Device, 	unauthorized_device 	);
+	DecryptString( Illegal_Counterfeit, 	illegal_counterfeit 	);
 
-	DecryptString( This_Device_Is_Not, 		this_device_is_not 		);	// "This device is not"
-	DecryptString( Authorized_For_Use, 		authorized_for_use 		);	// "authorized for use."
+	DecryptString( This_Device_Is_Not, 		this_device_is_not 		);
+	DecryptString( Authorized_For_Use, 		authorized_for_use 		);
 }
 
 void DecryptString( char *pDeCoded, const short *pCoded )

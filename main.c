@@ -21,8 +21,6 @@
 #define SPLASH_TEXT
 #define CADENCE
 #define NUMBERS
-#define MEASURE_BATTERY
-//#define BATTERY_LOG
 
 #include "TextStrings.h"
 
@@ -75,7 +73,7 @@
 #include "Second.c"
 #include "Seconds.c"
 #include "Point.c"
-#include "VolumeAt.c"
+//#include "VolumeAt.c"
 //#include "BatteryAt.c"
 #include "LastTimeWas.c"
 #include "MilesPerHour.c"
@@ -120,6 +118,8 @@ void SysTick_Init( void );
 static unsigned int GetRandomNumber( void );
 
 // battery
+#define MIN_BATTERY_VOLTAGE 12.00f
+#define MAX_BATTERY_VOLTAGE 13.20f
 int	  ReadBatteryCondition( void );
 float BatteryLevel		  ( const unsigned int display_level );
 
@@ -128,7 +128,8 @@ void InitMenus( void );
 void SetGateMenuState( void ); // sets appropriate menu upon power up or after gate drop based on release device
 void ItemCopy( const unsigned int menu, const unsigned int source_index, const unsigned int dest_index, const unsigned int no_indicators );
 void SetMenuText( char * menu, const char * text );
-int  ReadInputs( int * inputs, int read_sensors );
+enum READ_TYPE { AUX_INPUTS = 1, BUTTON_INPUTS = 2, ALL_INPUTS = (AUX_INPUTS | BUTTON_INPUTS) };
+int  ReadInputs( int read_type, int * inputs );
 void WaitForButtonUp();
 
 // audio
@@ -205,8 +206,6 @@ void ReadLightExitControlInput( int light_context );
 
 void ValidateUUIDMask( void );
 
-
-
 enum INPUTS { 	BUTTON_A 		= 0x0001,
 				BUTTON_B 		= 0x0010,
 				BUTTON_C 		= 0x0020,
@@ -220,6 +219,7 @@ enum INPUTS { 	BUTTON_A 		= 0x0001,
 				AUX_2_SENSOR_A	= 0x1000,
 				AUX_2_SENSOR_B	= 0x2000 };
 
+
 enum MENUS	   { DROP_GATE = 0,
 
 				 RAISE_GATE,
@@ -229,6 +229,9 @@ enum MENUS	   { DROP_GATE = 0,
 				 GATE_DROPS_ON,
 				 GATE_START_DELAY,
 				 GATE_START_WARNING,
+
+				 RAISE_GATE_WARNING,
+				 AUTO_RAISE_GATE,
 
 				 AUX_1_CONFIG,
 				 AUX_2_CONFIG,
@@ -242,7 +245,9 @@ enum MENUS	   { DROP_GATE = 0,
 				 ZERO_TOTAL_GATE_DROPS,
 				 SAVE_TOTAL_GATE_DROPS,
 
+				 SPEAKER_VOLUME,
 				 CADENCE_VOLUME,
+				 TONE_VOLUME,
 				 AUDIO_IN_VOLUME,
 
 				 BATTERY_CONDITION,
@@ -263,6 +268,8 @@ enum AUX_OPTIONS				{ AUX_DISABLED = 1, AUX_TIME = 2, AUX_TIME_SPEED = 3, AUX_SP
 								  AUX_ALIGN_SENSOR_A = 8, AUX_ALIGN_SENSOR_B = 9, AUX_LAP_COUNT = 10 };
 enum REACTION_GAME_OPTIONS		{ REACTION_GAME_ONE_PLAYER = 1, REACTION_GAME_TWO_PLAYER = 2, REACTION_GAME_VIEW_STATS = 3, REACTION_GAME_CLEAR_STATS = 4 };
 enum AUTO_ANNOUNCE_TIMES_OPTIONS{ AUTO_ANNOUNCE_TIMES_DISABLED = 1, AUTO_ANNOUNCE_TIMES_ENABLED = 2 };
+enum AUTO_RAISE_GATE_OPTIONS	{ AUTO_RAISE_GATE_DISABLED = 1, AUTO_RAISE_GATE_ENABLED = 2 };
+enum RAISE_GATE_WARNING_OPTIONS { RAISE_GATE_WARNING_DISABLED = 1, RAISE_GATE_WARNING_ENABLED = 2 };
 enum WIRELESS_REMOTE_OPTIONS	{ WIRELESS_REMOTE_DISABLED = 1, WIRELESS_REMOTE_ENABLED = 2 };
 enum RELEASE_DEVICE_OPTIONS 	{ RELEASE_DEVICE_SOLENOID = 1,	RELEASE_DEVICE_MAGNET = 2, RELEASE_DEVICE_AIR_RAM = 3 };
 enum TEST_LIGHTS_OPTIONS		{ TEST_LIGHTS_ALL_ON = 1, TEST_LIGHTS_RED = 2, TEST_LIGHTS_AMBER1 = 3, TEST_LIGHTS_AMBER2 = 4, TEST_LIGHTS_GREEN = 5, TEST_LIGHTS_UP_DOWN = 6, TEST_LIGHTS_DARK_LIGHT = 7, TEST_LIGHTS_RANDOM = 8 };
@@ -270,7 +277,7 @@ enum ANTI_SLAM_OPTIONS			{ ANTI_SLAM_DISABLED = 1, ANTI_SLAM_ENABLED = 2, ANTI_S
 
 
 // sub-menu options for auxiliary sensor type
-enum SENSOR_OPTIONS			{ RIBBON_SWITCH = 0, INFRARED = 1, LASER = 2, PROXIMITY = 3, WIRELESS = 4, SENSOR_OPTIONS_SIZE = 5 };
+enum SENSOR_OPTIONS			{ MOMENTARY_SWITCH = 0, INFRARED = 1, LASER = 2, PROXIMITY = 3, WIRELESS = 4, SENSOR_OPTIONS_SIZE = 5 };
 
 enum MENU_TYPE { NO_INPUT, DISPLAY_VALUE, WAIT_FOR_BUTTON, EDIT_VALUE, EDIT_CHOICE, VIEW_LIST };
 
@@ -437,21 +444,11 @@ static unsigned short Light_Code = 0x8888;
 static unsigned int UUID_Mask  = 0;
 static unsigned int UUID_Check = 0;
 
-#ifdef BATTERY_LOG
-// temp code to capture battery decay profile
-static unsigned int Battery_Levels[ 100 ];
-#endif
-
 static volatile uint64_t SystemTick;
 
 
 int main( void )
 {
-#ifdef BATTERY_LOG
-	int i = 0;
-	for(; i < 100; i++ ) Battery_Levels[ i ] = 0;
-#endif
-
 	SystemInit();  // line 221 of system_stm32f4xx.c
 
 	StartTimers(); // system ticks
@@ -478,9 +475,7 @@ int main( void )
 
 	ValidateUUIDMask();
 
-#ifdef MEASURE_BATTERY
 	BatteryLevel( 1 );
-#endif
 
 	// enable gates
  	GPIO_ResetBits( GPIOA, GPIO_Pin_3 );	// gate drive enable
@@ -490,8 +485,8 @@ int main( void )
 	SetGateMenuState();
 
 	// called to ignore first result which is false
-	ReadInputs( & inputs, 1 );
-	ReadInputs( & inputs, 1 );
+	ReadInputs( ALL_INPUTS, & inputs );
+	ReadInputs( ALL_INPUTS, & inputs );
 
 	// the one and only main loop
 	while ( 1 )
@@ -500,14 +495,13 @@ int main( void )
 		{
 			case STARTUP:
 			{
-				// do not permit usage with battery voltage at less than ~12vdc
-#ifdef MEASURE_BATTERY
-				if( BatteryLevel( 0 ) < 290000.0f )
+				// do not permit usage with battery voltage at less than ~12.0vdc
+				if( BatteryLevel( 0 ) < 2880.0f )
 				{
 					Device_State = RECHARGE;
 					break;
 				}
-#endif
+
 				// initialize attenuator
 				SetAttenuator( 0x41FF );		// write TCON (enable all)
 				SetAttenuator( 0x1000 | 50 );	// write pot 1 (pot 1 = STM32 audio)
@@ -518,9 +512,10 @@ int main( void )
 
 #ifdef SPLASH_TEXT
 				// decoy text
-				const char splash_0[] = "** RRP BMX GATES **";
-				const char splash_1[] = "Epicenter v0.9.4";
-				int blah = strlen( splash_0 ) + strlen( splash_1 );
+				const char splash_0[] = "   Property of:     ";
+				const char splash_1[] = " North Seatac BMX   ";
+				const char splash_2[] = "  Firmware v0.9.46  ";
+				int blah = strlen( splash_0 ) + strlen( splash_1 ) + strlen( splash_2 );
 				blah++;
 
 				// write splash text
@@ -533,7 +528,7 @@ int main( void )
 				Delay( 2000 );
 #endif
 
-				const int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
+				const int volume = (128 * Menu_Array[ SPEAKER_VOLUME ].context) / 100;
 				SetAttenuator( 0x1000 | volume );
 
 				// go to next menu
@@ -549,7 +544,7 @@ int main( void )
 				SetAttenuator( 0x1000 );
 				SetAttenuator( 0x0000 );
 
-				while( BatteryLevel( 1 ) < 310000.0f ); // don't function until battery is at least 40% charge
+				while( BatteryLevel( 1 ) < 3260.0f ); // don't function until battery is at least 50% charge or 12.6vdc
 
 				Device_State = STARTUP;
 				break;
@@ -571,87 +566,37 @@ int main( void )
 
 					do
 					{
-#ifdef MEASURE_BATTERY
-						if( ReadBatteryCondition() < 2900 ) // permit running battery down to 0%
+						if( ReadBatteryCondition() < 2880 ) // permit running battery down to 0%
 						{
 							Device_State = RECHARGE;
 							break;
 						}
-#endif
+
 						// update battery condition in realtime if battery condition menu is the current menu being displayed
 						if( Menu_Index == BATTERY_CONDITION )
 						{
-							float battery_level = 0;
 							int a = 0;
-							for(; a < 300; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
+							float battery_level = 0;
+
+							for(; a < 300; a++ ) battery_level += (float)ReadBatteryCondition();
 							battery_level /= 300;
 
-							float voltage 	 = 11.5f + ((13.2f - 11.5f) * (((100000.0f - ( 360000.0f - battery_level )) / 1000.0f) / 100.0f));
-
-							float adjustment = (0.0725f * ((70000.0f - ( 356000.0f - battery_level )) / 70000.0f));
-
-							voltage += adjustment;
+							float voltage = (battery_level + 3427.71f) / 527.629f + 0.0325f;
 
 							int voltage_integer		= (int)voltage;
 							int voltage_fractional	= (int)(voltage * 100.0f) % 100;
 
-							battery_level = (70000.0f - ( 356000.0f - battery_level )) / 700.0f;
-							battery_level = ( battery_level > 100 ) ? 100 : battery_level;
-							battery_level = ( battery_level <   0 ) ?   0 : battery_level;
+							float battery_percent = 100.0f - 100.0f * (MAX_BATTERY_VOLTAGE - voltage) / (MAX_BATTERY_VOLTAGE - MIN_BATTERY_VOLTAGE);
+							battery_percent = (battery_percent > 100.0f) ? 100.0f : battery_percent;
 
-							Menu_Array[ BATTERY_CONDITION ].context = (int) battery_level;
+							Menu_Array[ BATTERY_CONDITION ].context = (int) battery_percent;
 
-							if( voltage_fractional > 9 )
+							if( battery_level >= 4095 )
+								sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], "%s", "MAX% = >14.257vdc" );
+							else if( voltage_fractional > 9 )
 								sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], "%d%% = %d.%dvdc", Menu_Array[ BATTERY_CONDITION ].context, voltage_integer, voltage_fractional );
 							else
 								sprintf( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], "%d%% = %d.0%dvdc", Menu_Array[ BATTERY_CONDITION ].context, voltage_integer, voltage_fractional );
-
-#ifdef BATTERY_LOG
-							int battery_index = 100 - (int)battery_level;
-							Battery_Levels[ battery_index ] += 1;
-
-							if( (GPIOB->IDR & 0x0080) == 0 || ( ReadBatteryCondition() < 2500 ) )
-							{
-								FLASH_Unlock();
-
-								FLASH_ClearFlag( FLASH_FLAG_EOP	   | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
-											  	 FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR| FLASH_FLAG_PGSERR );
-
-								FLASH_EraseSector( GetFlashSector( FLASH_SAVE_MEMORY_START ), VoltageRange_3 );
-
-								uint32_t write_address = FLASH_SAVE_MEMORY_START;
-
-								uint32_t *p_data = (uint32_t *) Battery_Levels;
-
-								uint32_t stop_address = write_address + (sizeof( Battery_Levels ));
-
-								for( i = 0; write_address < stop_address; i++ )
-								{
-									FLASH_Status flash_status = FLASH_ProgramWord( write_address, *p_data );
-
-									if( flash_status == FLASH_ERROR_PROGRAM )
-									{
-										WriteLCD_LineCentered( "Flash_ProgramWord", 0 );
-										WriteLCD_LineCentered( "failed", 0 );
-										UpdateLCD();
-									}
-
-									if( flash_status == FLASH_COMPLETE )
-									{
-										p_data++;
-										write_address += 4;
-									}
-								}
-
-								FLASH_Lock();
-
-								WriteLCD_LineCentered( "Battery Levels", 0 );
-								WriteLCD_LineCentered( "Saved", 1 );
-								UpdateLCD();
-
-								while(1);
-							}
-#endif
 
 							// write condition to bottom line and update the display to show new condition
 							WriteLCD_LineCentered( Menu_Array[ BATTERY_CONDITION ].item[ 0 ], 1 );
@@ -659,10 +604,31 @@ int main( void )
 						}
 
 						// check for any input being triggered, only returns one result
-						encoder_delta = ReadInputs( &inputs, 0 );
+						encoder_delta = ReadInputs( ALL_INPUTS, & inputs );
 
-						if( inputs == AUX_1_SENSOR_A || inputs == AUX_1_SENSOR_B || inputs == AUX_2_SENSOR_A || inputs == AUX_2_SENSOR_B )
-							inputs = 0;
+						// skip processing the wireless remote if it is disabled
+						if( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_DISABLED )
+						{
+							inputs &= ~(BUTTON_A | BUTTON_B | BUTTON_C | BUTTON_D );
+						}
+
+						// handle button press from wired hand control switch if enabled - if configured as gate drop switch type is set to MOMENTARY_SWITCH
+						if( Menu_Array[ AUX_1_CONFIG ].context == AUX_GATE_SWITCH )
+						{
+							if( (inputs & AUX_1_SENSOR_A) || (inputs & AUX_1_SENSOR_B ) )
+								inputs = BUTTON_A;
+						}
+						else
+							inputs &= ~(AUX_1_SENSOR_A | AUX_1_SENSOR_B); // mask off sensor bits to ignore infrared sensor or any sensor trip
+
+						if( Menu_Array[ AUX_2_CONFIG ].context == AUX_GATE_SWITCH )
+						{
+							if( (inputs & AUX_2_SENSOR_A) || (inputs & AUX_2_SENSOR_B ) )
+								inputs = BUTTON_A;
+						}
+						else
+							inputs &= ~(AUX_2_SENSOR_A | AUX_2_SENSOR_B);  // mask off sensor bits to ignore infrared sensor or any sensor trip
+
 
 						// if no input then there is nothing to do
 						if( encoder_delta == 0 && inputs == 0 ) continue;
@@ -672,10 +638,10 @@ int main( void )
 						// make sure that index is within the array of menus
 						if( Menu_Index == MENUS_SIZE )
 							Menu_Index--;
-						else if( Menu_Index < 0)
+						else if( Menu_Index < 0 )
 							Menu_Index = 0;
 
-						// determine what menu to be one based on if the gate is up/down and what release device is being used
+						// determine what menu to display based on if the gate is up/down and what release device is being used
 						if( Gate_Power_State == POWER_OFF )
 						{
 							if( encoder_delta < 0 )
@@ -685,6 +651,10 @@ int main( void )
 									if( Menu_Index == DROP_GATE || Menu_Index == RAISE_GATE )
 									{
 										Menu_Index = ENERGIZE_MAGNET;
+									}
+									else if( Menu_Index == ANTI_SLAM )
+									{
+										Menu_Index = RELEASE_DEVICE;
 									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
@@ -700,6 +670,10 @@ int main( void )
 									{
 										Menu_Index = DROP_GATE;
 									}
+									else if( Menu_Index == ANTI_SLAM )
+									{
+										Menu_Index = RELEASE_DEVICE;
+									}
 								}
 							}
 							else if( encoder_delta > 0 )
@@ -709,6 +683,10 @@ int main( void )
 									if( Menu_Index == DROP_GATE || Menu_Index == RAISE_GATE )
 									{
 										Menu_Index = GATE_DROPS_ON;
+									}
+									else if( Menu_Index == ANTI_SLAM )
+									{
+										Menu_Index = RELEASE_DEVICE;
 									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
@@ -724,6 +702,10 @@ int main( void )
 									{
 										Menu_Index = GATE_DROPS_ON;
 									}
+									else if( Menu_Index == ANTI_SLAM )
+									{
+										Menu_Index = RELEASE_DEVICE;
+									}
 								}
 							}
 						}
@@ -737,6 +719,10 @@ int main( void )
 									{
 										Menu_Index = DROP_GATE;
 									}
+									else if( Menu_Index == ANTI_SLAM )
+									{
+										Menu_Index = WIRELESS_REMOTE;
+									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
 								{
@@ -744,12 +730,20 @@ int main( void )
 									{
 										Menu_Index = DROP_GATE;
 									}
+									else if( Menu_Index == RELEASE_DEVICE )
+									{
+										Menu_Index = WIRELESS_REMOTE;
+									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
 								{
 									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
 										Menu_Index = DROP_GATE;
+									}
+									else if( Menu_Index == ANTI_SLAM )
+									{
+										Menu_Index = WIRELESS_REMOTE;
 									}
 								}
 							}
@@ -761,6 +755,10 @@ int main( void )
 									{
 										Menu_Index = GATE_DROPS_ON;
 									}
+									else if( Menu_Index == RELEASE_DEVICE )
+									{
+										Menu_Index = WIRELESS_REMOTE;
+									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM )
 								{
@@ -768,12 +766,20 @@ int main( void )
 									{
 										Menu_Index = GATE_DROPS_ON;
 									}
+									else if( Menu_Index == RELEASE_DEVICE )
+									{
+										Menu_Index = ANTI_SLAM;
+									}
 								}
 								else if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_SOLENOID )
 								{
 									if( Menu_Index == RAISE_GATE || Menu_Index == ENERGIZE_MAGNET )
 									{
 										Menu_Index = GATE_DROPS_ON;
+									}
+									else if( Menu_Index == ANTI_SLAM )
+									{
+										Menu_Index = WIRELESS_REMOTE;
 									}
 								}
 							}
@@ -791,22 +797,6 @@ int main( void )
 							if( encoder_delta > 0 ) Menu_Index = SAVE_TOTAL_GATE_DROPS;
 							else					Menu_Index = TOTAL_GATE_DROPS;
 						}
-						else if( Menu_Index == RELEASE_DEVICE && Gate_Power_State == POWER_ON )
-						{
-							Menu_Index = WIRELESS_REMOTE;
-						}
-						else if( Menu_Index == ANTI_SLAM && Menu_Array[ RELEASE_DEVICE ].context != RELEASE_DEVICE_AIR_RAM )
-						{
-							if( Gate_Power_State == POWER_ON )
-							{
-								Menu_Index = WIRELESS_REMOTE;
-							}
-							else
-							{
-								Menu_Index = RELEASE_DEVICE;
-							}
-						}
-
 
 						// if the encoder wheel moved then display the new menu text
 						if( encoder_delta != 0 )
@@ -816,37 +806,14 @@ int main( void )
 							WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
 							UpdateLCD();
 						}
-
-						// if any sensors trip and aux port is configured as a switch then drop/raise the gate
-						if( ( Menu_Array[ AUX_1_CONFIG ].context == AUX_GATE_SWITCH && ((inputs == AUX_1_SENSOR_A) || (inputs == AUX_1_SENSOR_B)) ) ||
-						    ( Menu_Array[ AUX_2_CONFIG ].context == AUX_GATE_SWITCH && ((inputs == AUX_2_SENSOR_A) || (inputs == AUX_2_SENSOR_B)) ) )
-						{
-							SetGateMenuState();
-						}
-						else
-						{	// filter sensor inputs
-							if( inputs == AUX_1_SENSOR_A || inputs == AUX_1_SENSOR_B || inputs == AUX_2_SENSOR_A || inputs == AUX_2_SENSOR_B )
-								inputs = 0;
-						}
-
-						// skip processing the wireless remote if it is disabled
-						if( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_DISABLED )
-						{
-							if( ((inputs^BUTTON_A) == 0) || ((inputs^BUTTON_B) == 0) || ((inputs^BUTTON_C) == 0) || ((inputs^BUTTON_D) == 0) )
-							{
-								inputs = 0;
-								continue;
-							}
-						}
-
 					} while ( inputs == 0 );
 
 					// process button presses from RF keyfob remote
-					if( inputs == BUTTON_A )
+					if( inputs & BUTTON_A )
 					{
 						SetGateMenuState();
 					}
-					else if( inputs == BUTTON_B )
+					else if( inputs & BUTTON_B )
 					{	// say last time was time, last time was time + mph, or just mph
 #ifdef NUMBERS
 						Cadence_Cancelled = 0; // TODO: THIS IS A BAND AID FIX!!!! Figure out what the fuck is going on here!
@@ -871,39 +838,88 @@ int main( void )
 #endif
 						continue;
 					}
-					else if( inputs == BUTTON_C )
+					else if( (inputs^BUTTON_C) == 0 )
 					{
-						// TODO: Add functionality for button C, decrease cadence volume by 10% ?
+						static unsigned int count = 0;
+
+						if( count == 0x300 )
+						{
+							PlaySilence( 100, 1 );
+							PlaySample24khz( Square1150HzData, 0, SQUARE_1150HZ_SIZE, 1 );
+							InitAudio();
+
+							Delay( 1500 );
+							ReadInputs( BUTTON_INPUTS, & inputs );
+
+							if( inputs & BUTTON_B )
+							{
+								PlaySilence( 100, 1 );
+								PlaySample24khz( Square1150HzData, 0, SQUARE_1150HZ_SIZE, 1 );
+								InitAudio();
+								Delay( 1500 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
+
+								if( inputs & BUTTON_A )
+								{
+									PlaySilence( 100, 1 );
+									PlaySample24khz( Square1150HzData, 0, SQUARE_1150HZ_SIZE, 1 );
+									InitAudio();
+									Delay( 1500 );
+									ReadInputs( BUTTON_INPUTS, & inputs );
+
+									if( inputs & BUTTON_D )
+									{
+										PlaySilence( 100, 1 );
+										PlaySample24khz( Square1150HzData, 0, SQUARE_1150HZ_SIZE, 1 );
+										InitAudio();
+										Delay( 1500 );
+										ReadInputs( BUTTON_INPUTS, & inputs );
+
+										if( inputs & BUTTON_C )
+										{
+											PlaySilence( 100, 1 );
+											PlaySample24khz( Square1150HzData, 0, SQUARE_1150HZ_SIZE, 1 );
+											InitAudio();
+											SaveEverythingToFlashMemory( 2 );
+											count = 0;
+										}
+									}
+								}
+							}
+							count = 0;
+						}
+						count++;
 						continue;
 					}
-					else if( inputs == BUTTON_D )
+					else if( inputs & BUTTON_D )
 					{
 						// cycle through cadence volume levels of 10%, 20%, 40%, 60%, 80%, 100%
-						const int volume = Menu_Array[ CADENCE_VOLUME ].context;
+						const int volume = Menu_Array[ SPEAKER_VOLUME ].context;
 
-						if( volume < 10 ) Menu_Array[ CADENCE_VOLUME ].context	  	= 10;
-						else if( volume < 20 ) Menu_Array[ CADENCE_VOLUME ].context = 20;
-						else if( volume < 40 ) Menu_Array[ CADENCE_VOLUME ].context = 40;
-						else if( volume < 60 ) Menu_Array[ CADENCE_VOLUME ].context = 60;
-						else if( volume < 80 ) Menu_Array[ CADENCE_VOLUME ].context = 80;
-						else Menu_Array[ CADENCE_VOLUME ].context = 10;
+						if( volume < 10 ) Menu_Array[ SPEAKER_VOLUME ].context	  	= 10;
+						else if( volume < 20 ) Menu_Array[ SPEAKER_VOLUME ].context = 20;
+						else if( volume < 40 ) Menu_Array[ SPEAKER_VOLUME ].context = 40;
+						else if( volume < 60 ) Menu_Array[ SPEAKER_VOLUME ].context = 60;
+						else if( volume < 80 ) Menu_Array[ SPEAKER_VOLUME ].context = 80;
+						else Menu_Array[ SPEAKER_VOLUME ].context = 10;
 
-						sprintf( Menu_Array[ CADENCE_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ CADENCE_VOLUME ].context );
+						sprintf( Menu_Array[ SPEAKER_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ SPEAKER_VOLUME ].context );
 
 						char line1[ DISPLAY_WIDTH ];
-						sprintf( line1, "%d%%", Menu_Array[ CADENCE_VOLUME ].context );
+						sprintf( line1, "%d%%", Menu_Array[ SPEAKER_VOLUME ].context );
 						WriteLCD_LineCentered( line1, 1 );
 						UpdateLCD();
 
-						int cadence_volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
+						int cadence_volume = (128 * Menu_Array[ SPEAKER_VOLUME ].context) / 100;
 
 						SetAttenuator( 0x1000 | cadence_volume );
 #ifdef NUMBERS
 						PlaySilence( 100, 0 );
-						PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
-						PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
+//						PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
+						PlayTimeOrPercent( Menu_Array[ SPEAKER_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
 						InitAudio();
 #endif
+						SaveEverythingToFlashMemory( 0 );
 						break;
 					}
 					else if( inputs != 0 )	// handle encoder interface
@@ -918,7 +934,7 @@ int main( void )
 					{
 						case DROP_GATE:
 						{
-							if( inputs != BUTTON_E && Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_DISABLED )
+							if( ((inputs && BUTTON_E) == 0) && Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_DISABLED )
 								break;
 
 							if( Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET && Gate_Power_State == POWER_OFF )
@@ -974,10 +990,10 @@ int main( void )
 										warning_played = 1;
 									}
 #endif
-									ReadInputs( &inputs, 0 );
+									ReadInputs( BUTTON_INPUTS, & inputs );
 
 									// bypass delay if encoder wheel button
-									if( inputs == BUTTON_E  )
+									if( inputs & BUTTON_E  )
 										break;
 								}
 							}
@@ -988,7 +1004,7 @@ int main( void )
 // Todo: address saving the number of gate drops in next hardware revision, for now save memory handles this
 // the only reason to call this is to save the total gate drops
 //							SaveEverythingToFlashMemory( 0 );
-							ReadInputs( &inputs, 0 );
+							ReadInputs( BUTTON_INPUTS, & inputs );
 							inputs = 0;
 
 							ValidateUUIDMask();
@@ -1010,10 +1026,15 @@ int main( void )
 						case RAISE_GATE:
 						{
 							WriteLCD_LineCentered( "RAISE GATE", 0 );
-							WriteLCD_LineCentered( "Playing Warning", 1 );
+
+							if( Menu_Array[ RAISE_GATE_WARNING ].context == RAISE_GATE_WARNING_ENABLED )
+								WriteLCD_LineCentered( "Playing Warning", 1 );
+							else
+								WriteLCD_LineCentered( "No Warning", 1 );
 							UpdateLCD();
 
-							PlayGateUpTones();
+							if( Menu_Array[ RAISE_GATE_WARNING ].context == RAISE_GATE_WARNING_ENABLED )
+								PlayGateUpTones();
 
 							SetGatePowerOn();
 
@@ -1111,7 +1132,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1145,7 +1166,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory( 0 );
-								ReadInputs( &inputs, 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
 								inputs = 0;
 
 								break;
@@ -1183,7 +1204,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1266,7 +1287,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory( 0 );
-								ReadInputs( &inputs, 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
 								inputs = 0;
 
 								break;
@@ -1284,7 +1305,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1305,7 +1326,7 @@ int main( void )
 										case 2: { Menu_Array[ Menu_Index ].context = AUX_TIME;		 	 break;	}
 										case 3: { Menu_Array[ Menu_Index ].context = AUX_TIME_SPEED;	 break;	}
 										case 4: { Menu_Array[ Menu_Index ].context = AUX_SPRINT_TIMER;	 break;	}
-										case 5: { Menu_Array[ Menu_Index ].context = AUX_GATE_SWITCH;	 break;	}
+										case 5:	{ Menu_Array[ Menu_Index ].context = AUX_GATE_SWITCH;	 break; }
 										case 6:	{ Menu_Array[ Menu_Index ].context = AUX_SENSOR_SPACING; break;	}
 										case 7:	{ Menu_Array[ Menu_Index ].context = AUX_SENSOR_TYPE; 	 break;	}
 										case 8:	{ Menu_Array[ Menu_Index ].context = AUX_ALIGN_SENSOR_A; break;	}
@@ -1333,7 +1354,7 @@ int main( void )
 									UpdateLCD();
 
 									SaveEverythingToFlashMemory( 0 );
-									ReadInputs( &inputs, 0 );
+									ReadInputs( BUTTON_INPUTS, & inputs );
 									inputs = 0;
 
 									break;
@@ -1351,7 +1372,7 @@ int main( void )
 
 										// read controls
 										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
+										{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1381,7 +1402,7 @@ int main( void )
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory( 0 );
-										ReadInputs( &inputs, 0 );
+										ReadInputs( BUTTON_INPUTS, & inputs );
 										inputs = 0;
 
 										break;
@@ -1399,7 +1420,7 @@ int main( void )
 
 										// read controls
 										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
+										{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1424,7 +1445,7 @@ int main( void )
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory( 0 );
-										ReadInputs( &inputs, 0 );
+										ReadInputs( BUTTON_INPUTS, & inputs );
 										inputs = 0;
 
 										break;
@@ -1439,7 +1460,7 @@ int main( void )
 
 									// read controls
 									do
-									{	encoder_delta = ReadInputs( &inputs, 0 );
+									{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 										const int sensor_1A = ((GPIOB->IDR & 0x0080) == 0) ? 1 : 0;
 										const int sensor_1B = ((GPIOB->IDR & 0x0100) == 0) ? 1 : 0;
@@ -1491,7 +1512,7 @@ int main( void )
 
 										// read controls
 										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
+										{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1516,7 +1537,7 @@ int main( void )
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory( 0 );
-										ReadInputs( &inputs, 0 );
+										ReadInputs( BUTTON_INPUTS, & inputs );
 										inputs = 0;
 
 										break;
@@ -1529,7 +1550,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory( 0 );
-								ReadInputs( &inputs, 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
 								inputs = 0;
 
 								break;
@@ -1711,7 +1732,7 @@ int main( void )
 
 								// wait for input
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1752,7 +1773,7 @@ int main( void )
 								{
 									// wait for input
 									do
-									{	encoder_delta = ReadInputs( &inputs, 0 );
+									{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 									} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1769,7 +1790,7 @@ int main( void )
 										UpdateLCD();
 									}
 
-									if( inputs == BUTTON_E )
+									if( inputs & BUTTON_E )
 									{
 										if( Menu_Array[ CLEAR_TIMER_HISTORY ].context == 1 )
 										{
@@ -1780,7 +1801,7 @@ int main( void )
 
 											ClearTimingHistories();
 											SaveEverythingToFlashMemory( 0 );
-											ReadInputs( &inputs, 0 );
+											ReadInputs( BUTTON_INPUTS, & inputs );
 											inputs = 0;
 
 											WriteLCD_LineCentered( "Timing Histories", 0 );
@@ -1808,7 +1829,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1831,13 +1852,93 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory( 0 );
-								ReadInputs( &inputs, 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
+								inputs = 0;
+
+								break;
+							}
+							break;
+						}
+
+						case RAISE_GATE_WARNING:
+						{
+							while( 1 )
+							{
+								WriteLCD_LineCentered( Menu_Array[ RAISE_GATE_WARNING ].item[ Menu_Array[ RAISE_GATE_WARNING ].context ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									int new_value = Menu_Array[ RAISE_GATE_WARNING ].context + encoder_delta;
+
+									if( new_value >= 1 && new_value <= 2 )
+										Menu_Array[ RAISE_GATE_WARNING ].context = new_value;
+
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								ItemCopy( RAISE_GATE_WARNING, Menu_Array[ RAISE_GATE_WARNING ].context, 0, 1 );
+								WriteLCD_LineCentered( Menu_Array[ RAISE_GATE_WARNING ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								SaveEverythingToFlashMemory( 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
 								inputs = 0;
 
 								break;
 							}
 							break;
 
+						}
+
+						case AUTO_RAISE_GATE:
+						{
+							while( 1 )
+							{
+								WriteLCD_LineCentered( Menu_Array[ AUTO_RAISE_GATE ].item[ Menu_Array[ AUTO_RAISE_GATE ].context ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									int new_value = Menu_Array[ AUTO_RAISE_GATE ].context + encoder_delta;
+
+									if( new_value >= 1 && new_value <= 2 )
+										Menu_Array[ AUTO_RAISE_GATE ].context = new_value;
+
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								ItemCopy( AUTO_RAISE_GATE, Menu_Array[ AUTO_RAISE_GATE ].context, 0, 1 );
+								WriteLCD_LineCentered( Menu_Array[ AUTO_RAISE_GATE ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								SaveEverythingToFlashMemory( 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
+								inputs = 0;
+
+								break;
+							}
+							break;
 						}
 
 						case TOTAL_GATE_DROPS:
@@ -1863,7 +1964,7 @@ int main( void )
 								{
 									// wait for input
 									do
-									{	encoder_delta = ReadInputs( &inputs, 0 );
+									{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 									} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1880,7 +1981,7 @@ int main( void )
 										UpdateLCD();
 									}
 
-									if( inputs == BUTTON_E )
+									if( inputs & BUTTON_E )
 									{
 										if( Menu_Array[ ZERO_TOTAL_GATE_DROPS ].context == 0 )
 										{
@@ -1892,7 +1993,7 @@ int main( void )
 
 											Menu_Array[ TOTAL_GATE_DROPS ].context = 0;
 
-											ReadInputs( &inputs, 0 );
+											ReadInputs( BUTTON_INPUTS, & inputs );
 											inputs = 0;
 
 											WriteLCD_LineCentered( "Total Gate Drops", 0 );
@@ -1923,7 +2024,7 @@ int main( void )
 							{
 								// wait for input
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -1940,7 +2041,7 @@ int main( void )
 									UpdateLCD();
 								}
 
-								if( inputs == BUTTON_E )
+								if( inputs & BUTTON_E )
 								{
 									if( Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context == 0 )
 									{
@@ -1949,7 +2050,7 @@ int main( void )
 									else if( Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context > 0 )
 									{
 										SaveEverythingToFlashMemory( 0 );
-										ReadInputs( &inputs, 0 );
+										ReadInputs( BUTTON_INPUTS, & inputs );
 										inputs = 0;
 
 										WriteLCD_LineCentered( "Total Gate Drops", 0 );
@@ -1967,6 +2068,61 @@ int main( void )
 							break;
 						}
 
+						case SPEAKER_VOLUME:
+						{
+							while( 1 )
+							{
+								// display with cursor
+								sprintf( Menu_Array[ SPEAKER_VOLUME ].item[ 0 ], "\1 %d%% \2", Menu_Array[ SPEAKER_VOLUME ].context );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									int new_value = Menu_Array[ SPEAKER_VOLUME ].context += encoder_delta;
+
+									if( new_value > 100 ) new_value = 100;
+									if( new_value < 0 ) new_value = 0;
+
+									Menu_Array[ SPEAKER_VOLUME ].context = new_value;
+
+									int volume = (128 * Menu_Array[ SPEAKER_VOLUME ].context) / 100;
+
+									SetAttenuator( 0x1000 | volume );
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								// remove cursor and exit
+								sprintf( Menu_Array[ SPEAKER_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ SPEAKER_VOLUME ].context );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								break;
+							}
+
+#ifdef NUMBERS
+							PlaySilence( 100, 0 );
+//							PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
+							PlayTimeOrPercent( Menu_Array[ SPEAKER_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
+							InitAudio();
+#endif
+							SaveEverythingToFlashMemory( 0 );
+							ReadInputs( BUTTON_INPUTS, & inputs );
+							inputs = 0;
+
+							break;
+						}
+
 						case CADENCE_VOLUME:
 						{
 							while( 1 )
@@ -1978,7 +2134,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -1991,10 +2147,6 @@ int main( void )
 									if( new_value < 0 ) new_value = 0;
 
 									Menu_Array[ CADENCE_VOLUME ].context = new_value;
-
-									int volume = (128 * Menu_Array[ CADENCE_VOLUME ].context) / 100;
-
-									SetAttenuator( 0x1000 | volume );
 									continue;
 								}
 
@@ -2011,12 +2163,64 @@ int main( void )
 
 #ifdef NUMBERS
 							PlaySilence( 100, 0 );
-							PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
+//							PlaySample24khz( VolumeAtData, 0, VOLUME_AT_SIZE, 1 );
 							PlayTimeOrPercent( Menu_Array[ CADENCE_VOLUME ].context * 60 * 1000, PLAY_PERCENT );
 							InitAudio();
 #endif
 							SaveEverythingToFlashMemory( 0 );
-							ReadInputs( &inputs, 0 );
+							ReadInputs( BUTTON_INPUTS, & inputs );
+							inputs = 0;
+
+							break;
+						}
+
+						case TONE_VOLUME:
+						{
+							while( 1 )
+							{
+								// display with cursor
+								sprintf( Menu_Array[ TONE_VOLUME ].item[ 0 ], "\1 %d%% \2", Menu_Array[ TONE_VOLUME ].context );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								// read controls
+								do
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
+
+								} while (encoder_delta == 0 && inputs == 0 );
+
+								// change menu value
+								if( encoder_delta != 0 )
+								{
+									int new_value = Menu_Array[ TONE_VOLUME ].context += encoder_delta;
+
+									if( new_value > 100 ) new_value = 100;
+									if( new_value < 0 ) new_value = 0;
+
+									Menu_Array[ TONE_VOLUME ].context = new_value;
+
+									continue;
+								}
+
+								// check for exit
+								WaitForButtonUp();
+
+								// remove cursor and exit
+								sprintf( Menu_Array[ TONE_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ TONE_VOLUME ].context );
+								WriteLCD_LineCentered( Menu_Array[ Menu_Index ].item[ 0 ], 1 );
+								UpdateLCD();
+
+								break;
+							}
+
+#ifdef NUMBERS
+							// play cancel tones as a test to gauge volume
+							PlaySilence( 100, 1 );
+							PlayTone( 500, Square680HzData, SQUARE_680HZ_SIZE, 1 );
+							InitAudio();
+#endif
+							SaveEverythingToFlashMemory( 0 );
+							ReadInputs( BUTTON_INPUTS, & inputs );
 							inputs = 0;
 
 							break;
@@ -2033,7 +2237,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -2063,7 +2267,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory( 0 );
-								ReadInputs( &inputs, 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
 								inputs = 0;
 
 								break;
@@ -2092,8 +2296,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 1 );
-
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 								} while (encoder_delta == 0 && inputs == 0 );
 
 								// change menu value
@@ -2131,8 +2334,7 @@ int main( void )
 
 									// read controls
 									do
-									{	encoder_delta = ReadInputs( &inputs, 1 );
-
+									{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 									} while (encoder_delta == 0 && inputs == 0 );
 
 									GPIO_ResetBits( GPIOD, GPIO_Pin_12 );	// RED light OFF
@@ -2218,7 +2420,7 @@ int main( void )
 
 									// read controls
 									do
-									{	encoder_delta = ReadInputs( &inputs, 1 );
+									{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 										abort_cycle = LightTestCycle( 1 );
 
@@ -2244,7 +2446,7 @@ int main( void )
 
 									do
 									{
-										encoder_delta = ReadInputs( &inputs, 1 );
+										encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 										theta += 0.0135f;
 										on_time = 0.5f * period - 0.5f * period * sin( theta );
@@ -2285,7 +2487,7 @@ int main( void )
 
 									do
 									{
-										encoder_delta = ReadInputs( &inputs, 1 );
+										encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 										red_theta		+=  0.0125f;
 										amber1_theta	+=  0.0225f;
@@ -2346,7 +2548,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 1 );
+								{	encoder_delta = ReadInputs( ALL_INPUTS, & inputs );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -2424,7 +2626,7 @@ int main( void )
 									UpdateLCD();
 
 									do
-									{	encoder_delta = ReadInputs( &inputs, 0 );
+									{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 									} while (encoder_delta == 0 && inputs == 0 );
 
@@ -2457,7 +2659,7 @@ int main( void )
 									{
 										// wait for input
 										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
+										{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -2474,7 +2676,7 @@ int main( void )
 											UpdateLCD();
 										}
 
-										if( inputs == BUTTON_E )
+										if( inputs & BUTTON_E )
 										{
 											if( Menu_Array[ REACTION_GAME ].sub_context_1 == 1 )
 											{
@@ -2489,7 +2691,7 @@ int main( void )
 												Reaction_Game_P2_WORST = 0;
 
 // TODO: comment this back in for SMT version	SaveEverythingToFlashMemory( 0 );
-												ReadInputs( &inputs, 0 );
+												ReadInputs( BUTTON_INPUTS, & inputs );
 												inputs = 0;
 
 												WriteLCD_LineCentered( Menu_Array[ REACTION_GAME ].caption, 0 );
@@ -2519,7 +2721,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -2542,7 +2744,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory( 0 );
-								ReadInputs( &inputs, 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
 								inputs = 0;
 
 								break;
@@ -2560,7 +2762,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 0 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while (encoder_delta == 0 && inputs == 0 );
 
@@ -2593,7 +2795,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory( 0 );
-								ReadInputs( &inputs, 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
 								inputs = 0;
 
 								break;
@@ -2623,8 +2825,7 @@ int main( void )
 
 								// read controls
 								do
-								{	encoder_delta = ReadInputs( &inputs, 1 );
-
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 								} while (encoder_delta == 0 && inputs == 0 );
 
 								// change menu value
@@ -2712,7 +2913,13 @@ int main( void )
 
 										// read controls
 										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
+										{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
+
+											if( (inputs & AUX_1_SENSOR_A) || (inputs & AUX_1_SENSOR_B) || (inputs & AUX_2_SENSOR_A) & (inputs == AUX_2_SENSOR_B) )
+											{
+												inputs = 0;
+												encoder_delta = 0;
+											}
 
 										} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -2733,7 +2940,7 @@ int main( void )
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory( 0 );
-										ReadInputs( &inputs, 0 );
+										ReadInputs( BUTTON_INPUTS, & inputs );
 										inputs = 0;
 
 										break;
@@ -2760,8 +2967,12 @@ int main( void )
 
 										// read controls
 										do
-										{	encoder_delta = ReadInputs( &inputs, 0 );
-
+										{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
+											if( (inputs & AUX_1_SENSOR_A) || (inputs & AUX_1_SENSOR_B) || (inputs & AUX_2_SENSOR_A) & (inputs == AUX_2_SENSOR_B) )
+											{
+												inputs = 0;
+												encoder_delta = 0;
+											}
 										} while ( encoder_delta == 0 && inputs == 0 );
 
 										// change menu value
@@ -2785,7 +2996,7 @@ int main( void )
 										UpdateLCD();
 
 										SaveEverythingToFlashMemory( 0 );
-										ReadInputs( &inputs, 0 );
+										ReadInputs( BUTTON_INPUTS, & inputs );
 										inputs = 0;
 
 										break;
@@ -2800,7 +3011,7 @@ int main( void )
 								UpdateLCD();
 
 								SaveEverythingToFlashMemory( 0 );
-								ReadInputs( &inputs, 0 );
+								ReadInputs( BUTTON_INPUTS, & inputs );
 								inputs = 0;
 
 								break;
@@ -2846,17 +3057,30 @@ int main( void )
 				if( Menu_Array[ AUX_2_CONFIG ].context == AUX_SPRINT_TIMER )
 					Menu_Array[ AUX_2_CONFIG ].context = AUX_DISABLED;
 
+				int user_aborted = 0;
+
 				do
 				{
-					ReadInputs( &inputs, 1 );
+					ReadInputs( ALL_INPUTS, & inputs );
 
-					// return a time if there is one from being tripped
+					user_aborted = (inputs & BUTTON_E);
+
+					if( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED )
+						user_aborted |= (inputs & BUTTON_C);
+
+					if( Menu_Array[ AUX_1_CONFIG ].context == AUX_GATE_SWITCH )
+						user_aborted |= ((inputs & AUX_1_SENSOR_A) | (inputs & AUX_1_SENSOR_B));
+
+					if( Menu_Array[ AUX_2_CONFIG ].context == AUX_GATE_SWITCH )
+						user_aborted |= ((inputs & AUX_2_SENSOR_A) | (inputs & AUX_2_SENSOR_B));
+
+					// return a time if there is one from being tripped during tones
 					unsigned int sensor_1A = CheckSensor( AUX_1_SENSOR_A );
 					unsigned int sensor_1B = CheckSensor( AUX_1_SENSOR_B );
 					unsigned int sensor_2A = CheckSensor( AUX_2_SENSOR_A );
 					unsigned int sensor_2B = CheckSensor( AUX_2_SENSOR_B );
 
-					if( Menu_Array[ AUX_1_CONFIG ].context == AUX_DISABLED )
+					if( Menu_Array[ AUX_1_CONFIG ].context == AUX_DISABLED || Menu_Array[ AUX_1_CONFIG ].context == AUX_GATE_SWITCH )
 					{
 						if( Menu_Array[ AUX_2_CONFIG ].context == AUX_TIME )
 						{
@@ -2869,7 +3093,7 @@ int main( void )
 							break;
 						}
 					}
-					else if( Menu_Array[ AUX_2_CONFIG ].context == AUX_DISABLED )
+					else if( Menu_Array[ AUX_2_CONFIG ].context == AUX_DISABLED || Menu_Array[ AUX_2_CONFIG ].context == AUX_GATE_SWITCH )
 					{
 						if( Menu_Array[ AUX_1_CONFIG ].context == AUX_TIME )
 						{
@@ -3085,32 +3309,36 @@ int main( void )
 								InitAudio();
 							}
 #endif
-							Delay( 3000 );
+							Delay( 2000 );
 						}
 						break;
 					}
-				} while( inputs != BUTTON_E && inputs != BUTTON_C && Cancel_Timing != 1 );
+				} while( !user_aborted && Cancel_Timing != 1 );
 
-				// only save if timing wasn't cancelled
+				// only save if timing wasn't canceled
 				if( Cancel_Timing != 1 )
 				{
 					SaveEverythingToFlashMemory( 0 );
-					ReadInputs( &inputs, 0 );
-					inputs = 0;
+					//ReadInputs( BUTTON_INPUTS, & inputs );
+					//inputs = 0;
 				}
 
 				// restore contexts to handle case when one aux port is configured as a sprint timer
 				Menu_Array[ AUX_1_CONFIG ].context = aux_1_config;
 				Menu_Array[ AUX_2_CONFIG ].context = aux_2_config;
 
-				if( inputs == BUTTON_E || inputs == BUTTON_C || Cancel_Timing == 1  )
+				if( user_aborted || Cancel_Timing == 1 )
 				{
+					GPIO_SetBits( GPIOD, GPIO_Pin_15 );	 // GREEN light ON
+
 					WriteLCD_LineCentered( "TIMING CANCELED", 0 );
 					WriteLCD_LineCentered( "User Aborted", 1 );
 
 					UpdateLCD();
 
-					Delay( 3000 );
+					Delay( 1500 );
+
+					GPIO_ResetBits( GPIOD, GPIO_Pin_15 );// GREEN light OFF
 				}
 
 				Timing_Active = 0;
@@ -3293,6 +3521,49 @@ void DropGate( int test )
 
 		// turn all the lights off
 		GPIO_ResetBits( GPIOD, GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15 );
+
+		// automatically raise gate if option is enabled but only if either an electromagnet or air ram is configured as the release device
+		if( Menu_Array[ AUTO_RAISE_GATE ].context == AUTO_RAISE_GATE_ENABLED &&
+		   (Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_AIR_RAM ||  Menu_Array[ RELEASE_DEVICE ].context == RELEASE_DEVICE_MAGNET)
+		  )
+		{
+			int inputs = 0;
+			ReadInputs( ALL_INPUTS, & inputs );
+
+			int abort_auto_raise  = ( inputs & BUTTON_E );
+
+			if( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED )
+				abort_auto_raise |= ( inputs & BUTTON_C );
+
+			if( (Menu_Array[ AUX_1_CONFIG ].context == AUX_GATE_SWITCH) || (Menu_Array[ AUX_2_CONFIG ].context == AUX_GATE_SWITCH) )
+			{
+				abort_auto_raise |= ( inputs & AUX_1_SENSOR_A );
+				abort_auto_raise |= ( inputs & AUX_1_SENSOR_B );
+				abort_auto_raise |= ( inputs & AUX_2_SENSOR_A );
+				abort_auto_raise |= ( inputs & AUX_2_SENSOR_B );
+			}
+
+			if( !abort_auto_raise )
+			{
+				if( Menu_Array[ RAISE_GATE_WARNING ].context == RAISE_GATE_WARNING_ENABLED )
+					PlayGateUpTones();
+
+				SetGatePowerOn();
+			}
+
+			if( abort_auto_raise )
+			{
+				WriteLCD_LineCentered( "AUTO RAISE GATE", 0 );
+				WriteLCD_LineCentered( "Aborted", 1 );
+				UpdateLCD();
+
+				GPIO_SetBits( GPIOD, GPIO_Pin_12 ); // RED light ON
+
+				Delay( 2000 ); // if auto gate raise was aborted wait a couple seconds before reading buttons again to prevent gate raise
+
+				GPIO_ResetBits( GPIOD, GPIO_Pin_12 );// RED light OFF
+			}
+		}
 
 		// update gate drop counter
 		Menu_Array[ TOTAL_GATE_DROPS ].context += 1;
@@ -3616,11 +3887,11 @@ void DoReactionGame( const unsigned int player_count )
 		int inputs = 0;
 
 		do
-		{	ReadInputs( &inputs, 1 );
+		{	ReadInputs( ALL_INPUTS, & inputs );
 
 		} while( inputs == 0 );
 
-		if( inputs == BUTTON_E ) break;
+		if( inputs & BUTTON_E ) break;
 
 		WaitForButtonUp();
 	}
@@ -3691,7 +3962,7 @@ int LightTestCycle( const unsigned int allow_abort )
 		if( allow_abort == 1 || allow_abort == 3 )
 		{
 			int inputs = 0;
-			ReadInputs( &inputs, 0 );
+			ReadInputs( BUTTON_INPUTS, & inputs );
 
 			if( inputs != 0 )
 			{
@@ -3716,12 +3987,11 @@ void ReadLightExitControlInput( int light_context )
 	int encoder_delta = 0;
 	int inputs = 0;
 
-	while( inputs != BUTTON_E )
+	while( (inputs & BUTTON_E) == 0 )
 	{
 		// read controls
 		do
-		{	encoder_delta = ReadInputs( &inputs, 1 );
-
+		{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 		} while (encoder_delta == 0 && inputs == 0 );
 
 		if( encoder_delta == 0 ) break;
@@ -3773,7 +4043,7 @@ void ReadLightExitControlInput( int light_context )
 
 			int i = 0, j = 0;
 
-			for( ; j < 5; j++ )
+			for( ; j < 2; j++ )
 			{
 				for( i = 0; i < strlen( Ownership_Information ) - 20; i++ )
 				{
@@ -3784,8 +4054,8 @@ void ReadLightExitControlInput( int light_context )
 				}
 			}
 
-			WriteLCD_LineCentered( Design_By, 0 );
-			WriteLCD_LineCentered( Designer_Information, 1 );
+			WriteLCD_LineCentered( More_Info, 0 );
+			WriteLCD_LineCentered( Email_Address, 1 );
 			UpdateLCD();
 
 			int abort_cycle = 0;
@@ -3833,7 +4103,7 @@ void ValidateUUIDMask( void )
 			{
 				// read controls
 				do
-				{	encoder_delta = ReadInputs( &inputs, 1 );
+				{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 				} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -3844,16 +4114,16 @@ void ValidateUUIDMask( void )
 					while( 1 )
 					{
 						do
-						{	encoder_delta = ReadInputs( &inputs, 1 );
+						{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 						} while ( encoder_delta == 0 && inputs == 0 );
 
-						if( inputs == BUTTON_E )
+						if( inputs & BUTTON_E )
 						{
 							while( 1 )
 							{
 								do
-								{	encoder_delta = ReadInputs( &inputs, 1 );
+								{	encoder_delta = ReadInputs( BUTTON_INPUTS, & inputs );
 
 								} while ( encoder_delta == 0 && inputs == 0 );
 
@@ -4371,7 +4641,7 @@ void DoSprintTimer( const unsigned int aux_config )
 
 	do
 	{
-		ReadInputs( & inputs, 1 );
+		ReadInputs( ALL_INPUTS, & inputs );
 
 		// reassign based on which is actually AUX 1, AUX 2
 		if( aux_config == AUX_1_CONFIG )
@@ -4561,7 +4831,7 @@ void DoSprintTimer( const unsigned int aux_config )
 			}
 		}
 
-	} while( inputs != BUTTON_E );
+	} while( (inputs & BUTTON_E) == 0 && (inputs & BUTTON_C) == 0 );
 }
 
 void CopyTimerHistoryDown( void )
@@ -4972,7 +5242,7 @@ void PlayDropGateAnimation( void )
 
 	for( i = 0; i < 9; i++ )
 	{
-		Delay( 30 - 2 * i );
+		Delay( 8 - 2 * i );
 		WriteLCD_Command( 0x40 ); // Character code 0x00, start of CGRAM
 
 		for( j = 0; j < 8; j++ ) WriteLCD_Data( (int)D[ j ] );
@@ -5027,10 +5297,10 @@ void PlayDropGateAnimation( void )
 		WriteLCD_Line( line, 1 );
 		UpdateLCD();
 
-		Delay( 20 - i );
+		Delay( 8 - i );
 	}
 
-	Delay( 150 );
+//	Delay( 150 );
 
 	DefineCustomCharacters();
 }
@@ -5377,8 +5647,29 @@ void TIM6_DAC_IRQHandler()
 	// abort if any button is pressed only when in drop gate state
 	if( Dropping_Gate == 1 && Cadence_Cancelled == 0 && Anti_Slam_Active == 0 )
 	{
-		if( (GPIOE->IDR & 0x0010) == 0 || ( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED &&
-										  ((GPIOA->IDR & 0x0001) || (GPIOB->IDR & 0x4000) || (GPIOB->IDR & 0x8000) || (GPIOD->IDR & 0x0100))) )
+		// handle aborting gate drop from encoder, RF remote, and aux ports configured as gate drop switches
+		// check encoder button pressed (button "E")
+		int abort  = ((GPIOE->IDR & 0x0010) == 0);
+
+		// check for any button on RF remote pressed
+		if( ( Menu_Array[ WIRELESS_REMOTE ].context == WIRELESS_REMOTE_ENABLED ) )
+			abort |= ((GPIOA->IDR & 0x0001) || (GPIOB->IDR & 0x4000) || (GPIOB->IDR & 0x8000) || (GPIOD->IDR & 0x0100));
+
+		// check for abort on aux 1 port if configured as gate drop switch
+		if( Menu_Array[ AUX_1_CONFIG ].context == AUX_GATE_SWITCH )
+		{
+			abort |= ((GPIOB->IDR & 0x0080) == 0 ); // AUX_1_SENSOR_A
+			abort |= ((GPIOB->IDR & 0x0100) == 0 ); // AUX_1_SENSOR_B
+		}
+
+		// check for abort on aux 2 port if configured as gate drop switch
+		if( Menu_Array[ AUX_2_CONFIG ].context == AUX_GATE_SWITCH )
+		{
+			abort |= ((GPIOB->IDR & 0x0010) == 0 ); // AUX_2_SENSOR_A
+			abort |= ((GPIOB->IDR & 0x0020) == 0 ); // AUX_2_SENSOR_B
+		}
+
+		if( abort )
 		{
 			Cadence_Cancelled = 1;
 
@@ -5458,16 +5749,24 @@ static unsigned int GetRandomNumber( void )
 {
 	static unsigned int last_value	= 0;
 	static unsigned int new_value	= 0;
-	unsigned int 		error_bits	= 0;
 
-	error_bits = RNG_SR_SEIS | RNG_SR_CEIS;
-
-	while ( new_value == last_value )
+	int i = 0;
+	for( ; (new_value == last_value) && (i < 100); i++ )
 	{
-		// Check for error flags and if data is ready.
-		if ( ((RNG->SR & error_bits) == 0) && ( (RNG->SR & RNG_SR_DRDY) == 1 ) )
+		if( (RNG->SR & RNG_SR_SEIS) == 1 )
 		{
-		  new_value = RNG_GetRandomNumber();
+			RNG->SR &= ~RNG_SR_SEIS;
+			RNG_Cmd( DISABLE );
+			RNG_Cmd( ENABLE );
+			RNG->SR |= RNG_SR_DRDY;
+
+			Menu_Array[ TOTAL_GATE_DROPS ].sub_context_1++;
+		}
+
+		// get number if data is ready.
+		if( (RNG->SR & RNG_SR_DRDY) == 1 )
+		{
+			new_value = RNG_GetRandomNumber();
 		}
 	}
 
@@ -5519,6 +5818,9 @@ void PlayTone( const unsigned int milliseconds, const int16_t * tone_data, const
 		// Play the tone data
 		sample = tone_data[ j++ % (length - 1) ] / scale; // get sample from table
 
+		// attenuation
+		sample = (int16_t)((float)sample * (float)Menu_Array[ TONE_VOLUME ].context / 100.0f );
+
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
 
@@ -5543,7 +5845,8 @@ void PlaySample16khz( const int16_t * pSampleData, const unsigned int start, con
 	{
 		if( Cadence_Cancelled == 1 && dont_abort == 0 ) return;
 
-		sample = pSampleData[ i ];
+		// attenuation/amplification
+		sample = (int16_t)((float)pSampleData[ i ] * (float)Menu_Array[ CADENCE_VOLUME ].context / 100.0f );
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData(CODEC_I2S, sample);	// output left channel
@@ -5583,7 +5886,9 @@ void PlaySample24khz( const int16_t * pSampleData, const unsigned int start, con
 		if( Cadence_Cancelled == 1 && dont_abort == 0 ) return;
 
 		previous = sample;
-		sample = pSampleData[ i ];
+
+		// attenuation/amplification
+		sample = (int16_t)((float)pSampleData[ i ] * (float)Menu_Array[ CADENCE_VOLUME ].context / 100.0f );
 
 		while ( ! SPI_I2S_GetFlagStatus( CODEC_I2S, SPI_I2S_FLAG_TXE ) );
 		SPI_I2S_SendData( CODEC_I2S, previous + ((sample - previous) / 2) );	// output left
@@ -5652,17 +5957,31 @@ void PlayGateUpTones( void )
 static int16_t prev = 0xFFFF;
 static int16_t last_index = 0;
 
-int ReadInputs( int * inputs, int read_sensors )
+int ReadInputs( int read_type, int * inputs )
 {
 	const unsigned int PortA_IDR = GPIOA->IDR;
 	const unsigned int PortB_IDR = GPIOB->IDR;
 	const unsigned int PortD_IDR = GPIOD->IDR;
 
-	// check for RF remote buttons
-	if( PortA_IDR & 0x0001 ) { *inputs = BUTTON_A; return 0; }
-	if( PortB_IDR & 0x4000 ) { *inputs = BUTTON_B; return 0; }
-	if( PortB_IDR & 0x8000 ) { *inputs = BUTTON_C; return 0; }
-	if( PortD_IDR & 0x0100 ) { *inputs = BUTTON_D; return 0; }
+	*inputs = 0;
+
+	if( read_type & AUX_INPUTS )
+	{
+		// read aux ports
+		if( (PortB_IDR & 0x0080) == 0 ) { *inputs |= AUX_1_SENSOR_A; }
+		if( (PortB_IDR & 0x0100) == 0 ) { *inputs |= AUX_1_SENSOR_B; }
+		if( (PortB_IDR & 0x0010) == 0 ) { *inputs |= AUX_2_SENSOR_A; }
+		if( (PortB_IDR & 0x0020) == 0 ) { *inputs |= AUX_2_SENSOR_B; }
+	}
+
+	if( read_type & BUTTON_INPUTS )
+	{
+		// check for RF remote buttons
+		if( PortA_IDR & 0x0001 ) { *inputs |= BUTTON_A; }
+		if( PortB_IDR & 0x4000 ) { *inputs |= BUTTON_B; }
+		if( PortB_IDR & 0x8000 ) { *inputs |= BUTTON_C; }
+		if( PortD_IDR & 0x0100 ) { *inputs |= BUTTON_D; }
+	}
 
 	int16_t current_index = 0;
 
@@ -5673,7 +5992,7 @@ int ReadInputs( int * inputs, int read_sensors )
 
 		if ( 0x0000 == (prev & 0x0010) )
 		{
-			*inputs = BUTTON_E;
+			*inputs |= BUTTON_E;
 			return 0;
 		}
 		else
@@ -5703,17 +6022,6 @@ int ReadInputs( int * inputs, int read_sensors )
 		}
 	}
 
-	if( read_sensors == 1 )
-	{
-		// check for timer sensors
-		if( (PortB_IDR & 0x0080) == 0 ) { *inputs = AUX_1_SENSOR_A; return 0; }
-		if( (PortB_IDR & 0x0100) == 0 ) { *inputs = AUX_1_SENSOR_B; return 0; }
-		if( (PortB_IDR & 0x0010) == 0 ) { *inputs = AUX_2_SENSOR_A; return 0; }
-		if( (PortB_IDR & 0x0020) == 0 ) { *inputs = AUX_2_SENSOR_B; return 0; }
-	}
-
-	*inputs = 0;
-
 	return 0;
 }
 
@@ -5721,35 +6029,36 @@ void WaitForButtonUp()
 {
 	int inputs = 0;
 
-	do { ReadInputs( &inputs, 0 ); } while ( inputs != 0 );
+	do
+	{
+		ReadInputs( BUTTON_INPUTS, & inputs );
+		inputs &= (BUTTON_A | BUTTON_B | BUTTON_C | BUTTON_D | BUTTON_E);
+	} while ( inputs != 0 );
 }
 
 float BatteryLevel( const unsigned int display_level )
 {
-	float battery_level = 0;
 	int a = 0;
-	for(; a < 10000; a++ )	battery_level += (float)ReadBatteryCondition() * 100.0f;
-	battery_level /= 10000;
+	float battery_level = 0;
 
-	// save battery level at higher precision
-	const float charge_level = battery_level;
+	for(; a < 300; a++ ) battery_level += (float)ReadBatteryCondition();
+	battery_level /= 300;
+
+	float voltage = (battery_level + 3427.71) / 527.629 + 0.0325f;
+	float battery_percent = 100.0f - 100.0f * (MAX_BATTERY_VOLTAGE - voltage) / (MAX_BATTERY_VOLTAGE - MIN_BATTERY_VOLTAGE);
+	battery_percent = (battery_percent > 100.0f) ? 100.0f : battery_percent;
+
+	Menu_Array[ BATTERY_CONDITION ].context = battery_percent;
 
 	if( Starting_Charge_Level < 1.0f )
 	{
-		Starting_Charge_Level = charge_level;
+		Starting_Charge_Level = battery_level;
 		return 0;
 	}
 
-	Charge_Change += charge_level - Starting_Charge_Level;
+	Charge_Change += battery_level - Starting_Charge_Level;
 
-//	battery_level = (100000.0f - ( 360000.0f - battery_level )) / 1000.0f;
-	battery_level = (70000.0f - ( 356000.0f - battery_level )) / 1000.0f;
-	Menu_Array[ BATTERY_CONDITION ].context = ( battery_level > 100.0f ) ? 100 : (int)battery_level;
-
-	// 85% battery level is 13vdc
-
-	// recharge at battery_level == 290,000
-	if( charge_level < 285000.0f || display_level == 1 )
+	if( battery_level < 2850.0f || display_level == 1 )
 	{
 		// write condition to bottom line and update the display to show new condition
 		WriteLCD_LineCentered( "* RECHARGE BATTERY *", 0 );
@@ -5773,7 +6082,7 @@ float BatteryLevel( const unsigned int display_level )
 		UpdateLCD();
 	}
 
-	return charge_level;
+	return battery_level;
 }
 
 int ReadBatteryCondition( void )
@@ -5781,11 +6090,7 @@ int ReadBatteryCondition( void )
 	ADC_SoftwareStartConv( ADC1 );
 	while( !ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC) );
 
-#ifdef MEASURE_BATTERY
 	int battery_level = ADC_GetConversionValue( ADC1 );
-#else
-	int battery_level = 0;
-#endif
 	return battery_level;
 }
 
@@ -6189,11 +6494,11 @@ void InitMenus( void )
 	sprintf( Menu_Array[ GATE_DROPS_ON ].item[ 0 ],	  "Green" );
 
 	// sub menu text for auxiliary sensor type options
-	strcpy( Sensor_Text[ RIBBON_SWITCH ],	"\1 Ribbon Switch \2" );
-	strcpy( Sensor_Text[ INFRARED 	   ],	"\1 Infrared \2" 	  );
-	strcpy( Sensor_Text[ LASER		   ],	"\1 Laser \2" 		  );
-	strcpy( Sensor_Text[ PROXIMITY	   ],	"\1 Proximity \2" 	  );
-	strcpy( Sensor_Text[ WIRELESS	   ],	"\1 Wireless \2" 	  );
+	strcpy( Sensor_Text[ MOMENTARY_SWITCH ],	"\1 Momentary Switch \2" );
+	strcpy( Sensor_Text[ INFRARED 		  ],	"\1 Infrared \2" 	 	 );
+	strcpy( Sensor_Text[ LASER			  ],	"\1 Laser \2" 		 	 );
+	strcpy( Sensor_Text[ PROXIMITY		  ],	"\1 Proximity \2" 	  	 );
+	strcpy( Sensor_Text[ WIRELESS		  ],	"\1 Wireless \2" 	  	 );
 
 	ClearContexts( AUX_1_CONFIG );
 	Menu_Array[ AUX_1_CONFIG ].menu_type	 = EDIT_CHOICE;
@@ -6258,9 +6563,31 @@ void InitMenus( void )
 	Menu_Array[ AUTO_ANNOUNCE_TIMES ].current_item = 1;
 	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].caption, "AUTO ANNOUNCE TIMES" );
 	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ], SPACES );
-	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_DISABLED ], "\1 Disabled \2" );
-	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ WIRELESS_REMOTE_ENABLED  ], "\1 Enabled \2"  );
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ AUTO_ANNOUNCE_TIMES_DISABLED ], "\1 Disabled \2" );
+	SetMenuText( Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ AUTO_ANNOUNCE_TIMES_ENABLED  ], "\1 Enabled \2"  );
 	ItemCopy( AUTO_ANNOUNCE_TIMES, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context, 0, 1 );
+
+	ClearContexts( RAISE_GATE_WARNING );
+	Menu_Array[ RAISE_GATE_WARNING ].menu_type	   = EDIT_CHOICE;
+	Menu_Array[ RAISE_GATE_WARNING ].context 	   = RAISE_GATE_WARNING_ENABLED;
+	Menu_Array[ RAISE_GATE_WARNING ].item_count   = 2;
+	Menu_Array[ RAISE_GATE_WARNING ].current_item = 1;
+	SetMenuText( Menu_Array[ RAISE_GATE_WARNING ].caption, "RAISE GATE WARNING" );
+	SetMenuText( Menu_Array[ RAISE_GATE_WARNING ].item[ 0 ], SPACES );
+	SetMenuText( Menu_Array[ RAISE_GATE_WARNING ].item[ RAISE_GATE_WARNING_DISABLED ], "\1 Disabled \2" );
+	SetMenuText( Menu_Array[ RAISE_GATE_WARNING ].item[ RAISE_GATE_WARNING_ENABLED  ], "\1 Enabled \2"  );
+	ItemCopy( RAISE_GATE_WARNING, Menu_Array[ RAISE_GATE_WARNING ].context, 0, 1 );
+
+	ClearContexts( AUTO_RAISE_GATE );
+	Menu_Array[ AUTO_RAISE_GATE ].menu_type	   = EDIT_CHOICE;
+	Menu_Array[ AUTO_RAISE_GATE ].context 	   = AUTO_RAISE_GATE_DISABLED;
+	Menu_Array[ AUTO_RAISE_GATE ].item_count   = 2;
+	Menu_Array[ AUTO_RAISE_GATE ].current_item = 1;
+	SetMenuText( Menu_Array[ AUTO_RAISE_GATE ].caption, "AUTO RAISE GATE" );
+	SetMenuText( Menu_Array[ AUTO_RAISE_GATE ].item[ 0 ], SPACES );
+	SetMenuText( Menu_Array[ AUTO_RAISE_GATE ].item[ AUTO_RAISE_GATE_DISABLED ], "\1 Disabled \2" );
+	SetMenuText( Menu_Array[ AUTO_RAISE_GATE ].item[ AUTO_RAISE_GATE_ENABLED  ], "\1 Enabled \2"  );
+	ItemCopy( AUTO_RAISE_GATE, Menu_Array[ AUTO_RAISE_GATE ].context, 0, 1 );
 
 	ClearContexts( TOTAL_GATE_DROPS );
 	Menu_Array[ TOTAL_GATE_DROPS ].menu_type  = NO_INPUT;
@@ -6282,18 +6609,32 @@ void InitMenus( void )
 	SetMenuText( Menu_Array[ SAVE_TOTAL_GATE_DROPS ].item[ 0 ], "Press Button" );
 	ItemCopy( SAVE_TOTAL_GATE_DROPS, Menu_Array[ SAVE_TOTAL_GATE_DROPS ].context, 0, 1 );
 
+	ClearContexts( SPEAKER_VOLUME );
+	Menu_Array[ SPEAKER_VOLUME ].menu_type	= EDIT_VALUE;
+	Menu_Array[ SPEAKER_VOLUME ].context	= 20;
+	Menu_Array[ SPEAKER_VOLUME ].item_count = 1;
+	SetMenuText( Menu_Array[ SPEAKER_VOLUME ].caption, "SPEAKER VOLUME" );
+	sprintf( Menu_Array[ SPEAKER_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ SPEAKER_VOLUME ].context );
+
 	ClearContexts( CADENCE_VOLUME );
 	Menu_Array[ CADENCE_VOLUME ].menu_type	= EDIT_VALUE;
-	Menu_Array[ CADENCE_VOLUME ].context	= 2;
+	Menu_Array[ CADENCE_VOLUME ].context	= 84;
 	Menu_Array[ CADENCE_VOLUME ].item_count = 1;
 	SetMenuText( Menu_Array[ CADENCE_VOLUME ].caption, "CADENCE VOLUME" );
 	sprintf( Menu_Array[ CADENCE_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ CADENCE_VOLUME ].context );
 
+	ClearContexts( TONE_VOLUME );
+	Menu_Array[ TONE_VOLUME ].menu_type	= EDIT_VALUE;
+	Menu_Array[ TONE_VOLUME ].context	= 20;
+	Menu_Array[ TONE_VOLUME ].item_count = 1;
+	SetMenuText( Menu_Array[ TONE_VOLUME ].caption, "TONE VOLUME" );
+	sprintf( Menu_Array[ TONE_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ TONE_VOLUME ].context );
+
 	ClearContexts( AUDIO_IN_VOLUME );
 	Menu_Array[ AUDIO_IN_VOLUME ].menu_type	 = EDIT_VALUE;
-	Menu_Array[ AUDIO_IN_VOLUME ].context	 = 25;
+	Menu_Array[ AUDIO_IN_VOLUME ].context	 = 0;
 	Menu_Array[ AUDIO_IN_VOLUME ].item_count = 1;
-	SetMenuText( Menu_Array[ AUDIO_IN_VOLUME ].caption, "EXT AUDIO IN VOLUME" );
+	SetMenuText( Menu_Array[ AUDIO_IN_VOLUME ].caption, "AUDIO IN VOLUME" );
 	sprintf( Menu_Array[ AUDIO_IN_VOLUME ].item[ 0 ], "%d%%", Menu_Array[ AUDIO_IN_VOLUME ].context );
 
 	ClearContexts( BATTERY_CONDITION );
@@ -6361,7 +6702,7 @@ void InitMenus( void )
 	Menu_Array[ ANTI_SLAM ].sub_context_1 = ANTI_SLAM_DISABLED;
 	Menu_Array[ ANTI_SLAM ].sub_context_2 = 2500; // ANTI_SLAM_START_DELAY
 	Menu_Array[ ANTI_SLAM ].sub_context_3 = 2500; // ANTI_SLAM_PULSE_WIDTH
-	Menu_Array[ ANTI_SLAM ].sub_context_4 = 2;	  // ANTI_SLAM_INCREMENT - corresponds to case statement to set global variable = 1, 10, 100, 1000
+	Menu_Array[ ANTI_SLAM ].sub_context_4 = 3;	  // ANTI_SLAM_INCREMENT - corresponds to case statement to set global variable = 1, 10, 100, 1000
 	Menu_Array[ ANTI_SLAM ].current_item  = 0;
 	Menu_Array[ ANTI_SLAM ].item_count    = 7;
 	SetMenuText( Menu_Array[ ANTI_SLAM ].caption, "ANTI-SLAM FEATURE" );
@@ -6536,9 +6877,18 @@ void SaveEverythingToFlashMemory( int write_UUID_mask )
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ GATE_DROPS_ON ].item[ 0 ][ i ] );
 
+	FLASH_ProgramWord( write_address, Menu_Array[ RAISE_GATE_WARNING ].context  );	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ RAISE_GATE_WARNING ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ AUTO_RAISE_GATE ].context  );	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ AUTO_RAISE_GATE ].item[ 0 ][ i ] );
+
 	FLASH_ProgramWord( write_address, Menu_Array[ AUTO_ANNOUNCE_TIMES ].context  );	write_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ][ i ] );
+
 
 	FLASH_ProgramWord( write_address, Menu_Array[ AUX_1_CONFIG ].context	 );		write_address += 4;
 	FLASH_ProgramWord( write_address, Menu_Array[ AUX_1_CONFIG ].sub_context_1 );	write_address += 4;
@@ -6558,9 +6908,17 @@ void SaveEverythingToFlashMemory( int write_UUID_mask )
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ TIMER_HISTORY ].item[ 0 ][ i ] );
 
+	FLASH_ProgramWord( write_address, Menu_Array[ SPEAKER_VOLUME ].context	 );	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ SPEAKER_VOLUME ].item[ 0 ][ i ] );
+
 	FLASH_ProgramWord( write_address, Menu_Array[ CADENCE_VOLUME ].context	 );	write_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
 		FLASH_ProgramByte( write_address, Menu_Array[ CADENCE_VOLUME ].item[ 0 ][ i ] );
+
+	FLASH_ProgramWord( write_address, Menu_Array[ TONE_VOLUME ].context	 );	write_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
+		FLASH_ProgramByte( write_address, Menu_Array[ TONE_VOLUME ].item[ 0 ][ i ] );
 
 	FLASH_ProgramWord( write_address, Menu_Array[ AUDIO_IN_VOLUME ].context  );	write_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, write_address += 1 )
@@ -6637,6 +6995,14 @@ int ReadEverythingFromFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ GATE_DROPS_ON ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 
+	Menu_Array[ RAISE_GATE_WARNING ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ RAISE_GATE_WARNING ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ AUTO_RAISE_GATE ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ AUTO_RAISE_GATE ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
 	Menu_Array[ AUTO_ANNOUNCE_TIMES ].context	= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ AUTO_ANNOUNCE_TIMES ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
@@ -6659,9 +7025,17 @@ int ReadEverythingFromFlashMemory( void )
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ TIMER_HISTORY ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 
+	Menu_Array[ SPEAKER_VOLUME ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ SPEAKER_VOLUME ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
 	Menu_Array[ CADENCE_VOLUME ].context	= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
 		Menu_Array[ CADENCE_VOLUME ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
+
+	Menu_Array[ TONE_VOLUME ].context	= *(volatile uint32_t*)read_address; read_address += 4;
+	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
+		Menu_Array[ TONE_VOLUME ].item[ 0 ][ i ] = *(volatile uint8_t*)read_address;
 
 	Menu_Array[ AUDIO_IN_VOLUME ].context	= *(volatile uint32_t*)read_address; read_address += 4;
 	for( i = 0; i < DISPLAY_WIDTH; i++, read_address += 1 )
