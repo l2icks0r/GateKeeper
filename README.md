@@ -1,3 +1,3 @@
 # GateKeeper BMX Gate Controller firmware and assets
 
-Will comment more on this later...for now the only interesting stuff is in the one and only way too long and should be broken up *main.c*
+Will comment more on this later...for now the only interesting stuff is in the one and only way too long and should be broken up **main.c**
